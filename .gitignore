@@ -1,0 +1,10 @@
+*.cproject
+*.project
+*.o
+*.exe
+*.dll
+*.depend
+app.xml
+simbuild
+TOSSIM.py
+*dbg*
