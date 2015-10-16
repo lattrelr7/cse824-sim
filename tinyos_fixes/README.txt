@@ -1,6 +1,8 @@
 Replace the files:
 lib/tossim/sf/sim/SerialActiveMessageC.nc
 lib/tossim/sf/sim_serial_forwarder.c
+lib/tossim/sf/SerialPacket.h
+lib/tossim/sf/tossim.h
 
 This fixes length and offset issues when receiving serial messages from the simulation.
 
