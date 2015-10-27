@@ -10,10 +10,12 @@ implementation
 	components SerialActiveMessageC as Serial;
 	components ActiveMessageC as Radio;
 	components hmC as App;
+	components RandomC;
 
 	MainC.Boot <- App;
 	App.Timer0 -> Timer0;
 	App.Leds -> LedsC;
+	App.Random -> RandomC;
 	
 	App.SerialControl -> Serial;
 	App.UartSend -> Serial;

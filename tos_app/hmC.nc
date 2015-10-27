@@ -10,6 +10,7 @@ module hmC @safe()
 		interface Boot;
 		interface Leds;
 		interface Timer<TMilli> as Timer0;
+		interface Random;
 		
 		interface SplitControl as SerialControl;
 		interface SplitControl as RadioControl;
@@ -48,6 +49,7 @@ implementation
 	am_addr_t  radio_dest; /* Where to send all radio messages */
 	uint8_t	   last_cmd_id; /* Track what the last route message used was */
 	uint16_t   current_distance; /* How many hops to sink */
+	uint8_t    current_fault;
 	
 	/* Task prototypes */
 	task void radioSendBroadcastTask();
@@ -118,6 +120,25 @@ implementation
 	{
 		message_payload_t payload;
 		payload.node_id = TOS_NODE_ID;
+		
+		/* Generate random sensor data 
+		 * Limit to 0x0080 - 0x0FFF for normal behavior */
+		payload.sensor_reading = call Random.rand16();
+		if(!(current_fault & BAD_SENSOR_READINGS || current_fault & FAIL_SENSOR))
+		{
+			payload.sensor_reading &= 0x03FF;
+			payload.sensor_reading |= 0x0080;
+		}
+		//dbg("Payload","Payload: %d\n", payload.sensor_reading);
+		
+		if(current_fault & FAIL_SENSOR)
+		{
+			payload.sensor_status = BIT_FAILED;
+		}
+		else
+		{
+			payload.sensor_status = BIT_OK;	
+		}
 		
 		memcpy(radioQueueBufs[radioIn].data, &payload, sizeof(message_payload_t));
 		call RadioPacket.setPayloadLength(&radioQueueBufs[radioIn], sizeof(message_payload_t));
@@ -277,11 +298,12 @@ implementation
 		return ret;
 	}
 	
-	/* TODO */
 	event message_t *RadioReceiveFault.receive(message_t *msg, void *payload, uint8_t len) 
 	{
 		message_t *ret = msg;
+		fault_command_t * fault_cmd = (fault_command_t *)payload;
 		dbg("Fault", "Fault message received.\n");
+		current_fault = fault_cmd->fault_type;
 		return ret;
 	}
 	
@@ -354,6 +376,28 @@ implementation
 		am_id_t id;
 		am_addr_t source;
 		message_t* msg;
+		uint16_t feeling_lucky;
+		
+		/* If fail radio set, back off for a random
+		 * amount of time before sending
+		 */
+		if(current_fault & FAIL_RADIO)
+		{
+			feeling_lucky = call Random.rand16();
+			if(feeling_lucky % 4 != 0)
+			{
+				dbg("Fault", "Radio issues. Transmit failure %d.\n", feeling_lucky % 4);
+				radioBusy = FALSE;
+				return;	
+			}
+		}
+		
+		/* If fail battery set, dont respond ever */
+		if(current_fault & FAIL_BATTERY)
+		{
+			radioBusy = FALSE;
+			return;
+		}
 
 		atomic
 		{

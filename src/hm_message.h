@@ -14,13 +14,16 @@ enum MESSAGE_TYPES
 
 enum FAULT_TYPES
 {
-	BAD_SENSOR_READINGS, /* Return abnormal values */
-	FAIL_SENSOR, /* Report BIT fault */
-	FAIL_RADIO, /* Intermittent responses */
-	FAIL_BATTERY, /* Stop responding */
-	FIX_BATTERY,
-	FIX_RADIO,
-	FIX_SENSOR,
+	BAD_SENSOR_READINGS = 0x01, /* Return abnormal values */
+	FAIL_SENSOR = 0x02, /* Report BIT fault */
+	FAIL_RADIO = 0x04, /* Intermittent responses */
+	FAIL_BATTERY = 0x08, /* Stop responding */
+};
+
+enum BIT_TYPES
+{
+	BIT_OK = 0,
+	BIT_FAILED = 1,
 };
 
 enum NETWORK_COMMAND_TYPES
@@ -51,6 +54,8 @@ struct health_data_t {
 
 struct message_payload_t {
 	uint16_t node_id;
+	uint16_t sensor_reading;
+	uint8_t sensor_status;
 } __attribute__ ((packed));
 
 struct network_command_t {
