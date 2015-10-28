@@ -8,3 +8,4 @@ app.xml
 simbuild
 TOSSIM.py
 *dbg*
+*.db
