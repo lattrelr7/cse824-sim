@@ -2,7 +2,7 @@
 include ../tos_conf
 GCC:=g++
 CFLAGS:=-Wall
-LDFLAGS:=
+LDFLAGS:= -lsqlite3
 INCLUDE:=$(TINYOS_ROOT_DIR)/tos/lib/tossim
 APP_NAME:=tc
 TOS_APP_DIR:=../tos_app

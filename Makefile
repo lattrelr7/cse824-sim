@@ -2,8 +2,11 @@
 
 all: tos_app tc
 	
-tos_app:
+tos_app: 824Sim.db
 	cd tos_app; make micaz sim-sf
+
+824Sim.db:
+	 cat ./database_model/create824Tables.sql | sqlite3 824Sim.db
 	
 tc:
 	cd src; make
