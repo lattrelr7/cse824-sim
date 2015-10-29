@@ -28,6 +28,7 @@ implementation
 	App.RadioReceiveSensor -> Radio.Receive[SENSOR_TYPE];
 	App.RadioReceiveFault -> Radio.Receive[FAULT_TYPE];
 	App.RadioReceiveRoute -> Radio.Receive[NETWORK_TYPE];
+	//App.RadioReceiveSnoop -> Radio.Snoop;
 	App.RadioPacket -> Radio;
 	App.RadioAMPacket -> Radio;
 }

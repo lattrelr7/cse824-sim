@@ -61,6 +61,7 @@ typedef nx_struct message_payload_t {
 	nx_uint16_t node_id;
 	nx_uint16_t sensor_reading;
 	nx_uint8_t sensor_status;
+	nx_uint16_t next_hop;
 } message_payload_t;
 
 #endif

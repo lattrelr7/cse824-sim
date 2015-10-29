@@ -77,6 +77,8 @@ int main()
 	t->addChannel((char *)"Fault", sim_dbg_out);
 	t->addChannel((char *)"Boot", sim_dbg_out);
 	t->addChannel((char *)"Fault", sim_dbg_out);
+	//t->addChannel((char *)"Radio", sim_dbg_out);
+	//t->addChannel((char *)"Snoop", sim_dbg_out);
 
 	/* Read noise */
 	std::cout << "Configuring noise..." << std::endl;
@@ -260,6 +262,7 @@ static void * SerialListenThread(void * args)
 			LogTcDbg("Payload Length: %d\n", header->length);*/
 			LogTcDbg("---------PAYLOAD----------------\n");
 			LogTcDbg("Node ID: %d\n", ntohs(payload->node_id));
+			LogTcDbg("Next Hop: %d\n", ntohs(payload->next_hop));
 			LogTcDbg("Sensor Reading: %d\n", ntohs(payload->sensor_reading));
 			LogTcDbg("Sensor BIT: %d\n", payload->sensor_status);
 			LogTcDbg("********************************\n");
@@ -291,7 +294,7 @@ static void * SQLHandlerThread(void * args)
 	while(1){
 		message_payload_t payload = my_queue.Dequeue();
 		char query[128];
-		sprintf(query, insertTemplate, ntohs(payload.node_id), ntohs(payload.sensor_reading), payload.sensor_status, 0, 0);
+		sprintf(query, insertTemplate, ntohs(payload.node_id), ntohs(payload.next_hop), ntohs(payload.sensor_reading), payload.sensor_status, 0);
 		rc = sqlite3_exec(db, query, 0, 0, &err_msg);
 		
 		if (rc != SQLITE_OK ) {

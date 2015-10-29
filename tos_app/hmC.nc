@@ -24,6 +24,7 @@ module hmC @safe()
 		interface Receive as RadioReceiveSensor;
 		interface Receive as RadioReceiveRoute;
 		interface Receive as RadioReceiveFault;
+		//interface Receive as RadioReceiveSnoop[am_id_t id];
 		interface Packet as RadioPacket;
 		interface AMPacket as RadioAMPacket;
 	}
@@ -33,14 +34,12 @@ implementation
 {
 	/* Member vars */
 	message_t  uartQueueBufs[UART_QUEUE_LEN];
-	message_t  * ONE_NOK uartQueue[UART_QUEUE_LEN];
 	uint8_t    uartIn;
 	uint8_t    uartOut;
 	bool       uartBusy;
 	bool	   uartFull;
 	
 	message_t  radioQueueBufs[RADIO_QUEUE_LEN];
-	message_t  * ONE_NOK radioQueue[RADIO_QUEUE_LEN];
 	uint8_t    radioIn;
 	uint8_t	   radioOut;
 	bool       radioBusy;
@@ -50,6 +49,7 @@ implementation
 	uint8_t	   last_cmd_id; /* Track what the last route message used was */
 	uint16_t   current_distance; /* How many hops to sink */
 	uint8_t    current_fault;
+	uint16_t   backoff_time;
 	
 	/* Task prototypes */
 	task void radioSendBroadcastTask();
@@ -72,14 +72,8 @@ implementation
 	/* Initialization task */
 	event void Boot.booted() 
 	{
-		uint8_t i;
 		if(TOS_NODE_ID == BASE_STATION_NODE_ID)
 		{
-
-			for (i = 0; i < UART_QUEUE_LEN; i++)
-			{
-				uartQueue[i] = &uartQueueBufs[i];
-			}
 			uartIn = uartOut = 0;
 			uartBusy = FALSE;
 			uartFull = TRUE;
@@ -91,10 +85,6 @@ implementation
 			dbg("Boot","Boot: Node %d serial started.\n", TOS_NODE_ID);
 		}
 		
-		for (i = 0; i < RADIO_QUEUE_LEN; i++)
-		{
-			radioQueue[i] = &radioQueueBufs[i];
-		}
 		radioIn = radioOut = 0;
 		radioBusy = FALSE;
 		radioFull = TRUE;
@@ -140,9 +130,11 @@ implementation
 			payload.sensor_status = BIT_OK;	
 		}
 		
+		payload.next_hop = (uint16_t)radio_dest;
+		
+		call RadioAMPacket.setType(&radioQueueBufs[radioIn], SENSOR_TYPE);
 		memcpy(radioQueueBufs[radioIn].data, &payload, sizeof(message_payload_t));
 		call RadioPacket.setPayloadLength(&radioQueueBufs[radioIn], sizeof(message_payload_t));
-		
 		radioIn = (radioIn + 1) % RADIO_QUEUE_LEN;
 		if (!radioBusy)
 		{
@@ -174,10 +166,10 @@ implementation
 		
 		route_cmd.hops_to_sink = 0;
 		route_cmd.cmd_id = net_cmd->cmd_num;
+		
 		call RadioAMPacket.setType(&radioQueueBufs[radioIn], NETWORK_TYPE);
 		memcpy(radioQueueBufs[radioIn].data, &route_cmd, sizeof(network_route_t));
 		call RadioPacket.setPayloadLength(&radioQueueBufs[radioIn], sizeof(network_route_t));
-		
 		radioIn = (radioIn + 1) % RADIO_QUEUE_LEN;
 		if (!radioBusy)
 		{
@@ -204,19 +196,16 @@ implementation
 			}
 		}
 
-		msg = uartQueue[uartOut];
-		id = call RadioAMPacket.type(msg);
-		len = call RadioPacket.payloadLength(msg);
-		addr = call RadioAMPacket.destination(msg);
-		src = call RadioAMPacket.source(msg);
-		grp = call RadioAMPacket.group(msg);
+		msg = &uartQueueBufs[uartOut];
+		id = call UartAMPacket.type(msg);
+		len = call UartPacket.payloadLength(msg);
 		call UartPacket.clear(msg);
-		call UartAMPacket.setSource(msg, src);
-		call UartAMPacket.setGroup(msg, grp);
+		call UartAMPacket.setSource(msg, TOS_NODE_ID);
+		call UartAMPacket.setGroup(msg, 0);
 		
 		dbg("Serial", "Uart message of len %d\n", len);
 
-		if (call UartSend.send[id](addr, uartQueue[uartOut], len) == SUCCESS)
+		if (call UartSend.send[id](0, msg, len) == SUCCESS)
 		{
 			call Leds.led1Toggle();
 		}
@@ -237,7 +226,7 @@ implementation
 		{
 			atomic
 			{
-				if (msg == uartQueue[uartOut])
+				if (msg == &uartQueueBufs[uartOut])
 				{
 					if (++uartOut >= UART_QUEUE_LEN)
 					{
@@ -275,7 +264,9 @@ implementation
 		if(TOS_NODE_ID == BASE_STATION_NODE_ID)
 		{
 			/* Send message over serial */
-			uartQueue[uartIn] = msg;
+			call UartAMPacket.setType(&uartQueueBufs[uartIn], SENSOR_TYPE);
+			memcpy(uartQueueBufs[uartIn].data, payload, sizeof(message_payload_t));
+			call UartPacket.setPayloadLength(&uartQueueBufs[uartIn], sizeof(message_payload_t));
 			uartIn = (uartIn + 1) % UART_QUEUE_LEN;
 			if (!uartBusy)
 			{
@@ -286,7 +277,9 @@ implementation
 		else
 		{
 			/* Forward message over radio */
-			radioQueue[radioIn] = msg;
+			call RadioAMPacket.setType(&radioQueueBufs[radioIn], SENSOR_TYPE);
+			memcpy(radioQueueBufs[radioIn].data, payload, sizeof(message_payload_t));
+			call RadioPacket.setPayloadLength(&radioQueueBufs[radioIn], sizeof(message_payload_t));
 			radioIn = (radioIn + 1) % RADIO_QUEUE_LEN;
 			if (!radioBusy)
 			{
@@ -307,6 +300,15 @@ implementation
 		return ret;
 	}
 	
+	/*event message_t *RadioReceiveSnoop.receive[am_id_t id](message_t *msg, void *payload, uint8_t len) 
+	{
+		message_t *ret = msg;
+		am_addr_t msg_src = call RadioAMPacket.source(msg);
+		uint8_t type = call UartAMPacket.type(msg);
+		dbg("Snoop", "Overheard message of type %d from %d\n", type, msg_src);
+		return ret;
+	}*/
+	
 	/* On a route message, we want to update the route to the closest node with
 	 * the least number of hops to the sink.
 	 */
@@ -315,7 +317,6 @@ implementation
 		message_t *ret = msg;
 		network_route_t * route_cmd = (network_route_t *)payload;
 		uint8_t send_update = 0;
-		dbg("Radio", "Route message received.\n");
 		if(TOS_NODE_ID != BASE_STATION_NODE_ID)
 		{
 			/* If we get a new command to update the route,
@@ -347,7 +348,10 @@ implementation
 			{
 				dbg("Route", "Updating route to %d (distance: %d).\n", radio_dest, current_distance);
 				route_cmd->hops_to_sink = current_distance + 1;
-				radioQueue[radioIn] = msg;
+				
+				call RadioAMPacket.setType(&radioQueueBufs[radioIn], NETWORK_TYPE);
+				memcpy(radioQueueBufs[radioIn].data, route_cmd, sizeof(network_route_t));
+				call RadioPacket.setPayloadLength(&radioQueueBufs[radioIn], sizeof(network_route_t));
 				radioIn = (radioIn + 1) % RADIO_QUEUE_LEN;
 				if (!radioBusy)
 				{
@@ -408,12 +412,14 @@ implementation
 			}
 		}
 
-		msg = radioQueue[radioOut];
+		msg = &radioQueueBufs[radioOut];
 		source = (am_addr_t)TOS_NODE_ID;
 		id = call RadioAMPacket.type(msg);
 		len = call RadioPacket.payloadLength(msg);
 		call RadioPacket.clear(msg);
 		call RadioAMPacket.setSource(msg, source);
+		
+		//dbg("Route", "Sending from %d to %d.\n", call RadioAMPacket.source(msg), dst);
 		
 		if (call RadioSend.send[id](dst, msg, len) == SUCCESS)
 		{
@@ -443,7 +449,7 @@ implementation
 		{
 			atomic
 			{
-				if (msg == radioQueue[radioOut])
+				if (msg == &radioQueueBufs[radioOut])
 				{
 					if (++radioOut >= RADIO_QUEUE_LEN)
 					{

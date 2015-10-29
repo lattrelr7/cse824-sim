@@ -56,6 +56,7 @@ struct message_payload_t {
 	uint16_t node_id;
 	uint16_t sensor_reading;
 	uint8_t sensor_status;
+	uint16_t next_hop;
 } __attribute__ ((packed));
 
 struct network_command_t {
