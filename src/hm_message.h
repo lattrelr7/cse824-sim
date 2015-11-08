@@ -8,27 +8,29 @@
 enum MESSAGE_TYPES
 {
 	SENSOR_TYPE = 0, /* Periodic message from sensor */
+	EXT_TYPE = 4, /* Extended sensor type message */
 	NETWORK_TYPE = 1, /* Command from CMC (routing) */
 	FAULT_TYPE = 2, /* Fault injection message */
+	ALIVE_TYPE = 3, /* Node alive broadcast - no payload */
 };
 
 enum FAULT_TYPES
 {
-	BAD_SENSOR_READINGS = 0x01, /* Return abnormal values */
-	FAIL_SENSOR = 0x02, /* Report BIT fault */
-	FAIL_RADIO = 0x04, /* Intermittent responses */
-	FAIL_BATTERY = 0x08, /* Stop responding */
-};
-
-enum BIT_TYPES
-{
-	BIT_OK = 0,
-	BIT_FAILED = 1,
+	UNDEF = 0x01, /* */
+	FAIL_ALIVE = 0x02, /* Stop alive tx */
+	FAIL_DATA = 0x04, /* Stop sensor data tx */
+	FAIL_BATTERY = 0x08, /* Stop both */
 };
 
 enum NETWORK_COMMAND_TYPES
 {
 	UPDATE_ROUTE,
+};
+
+enum INFO_TYPES
+{
+	FOUND_NODE,
+	LOST_NODE,
 };
 
 /*
@@ -48,15 +50,18 @@ struct serial_header_t {
 	uint8_t type;
 } __attribute__ ((packed));
 
-struct health_data_t {
-	uint16_t p1;
-} __attribute__ ((packed));
-
 struct message_payload_t {
 	uint16_t node_id;
-	uint16_t sensor_reading;
-	uint8_t sensor_status;
-	uint16_t next_hop;
+	uint16_t voltage;
+	uint16_t sensor_data;
+} __attribute__ ((packed));
+
+struct ext_message_payload_t {
+	uint16_t node_id;
+	uint16_t voltage;
+	uint16_t sensor_data;
+	uint8_t info_type;
+	uint16_t info_addr;
 } __attribute__ ((packed));
 
 struct network_command_t {

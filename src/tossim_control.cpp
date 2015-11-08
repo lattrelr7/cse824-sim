@@ -78,7 +78,8 @@ int main()
 	t->addChannel((char *)"Boot", sim_dbg_out);
 	t->addChannel((char *)"Fault", sim_dbg_out);
 	//t->addChannel((char *)"Radio", sim_dbg_out);
-	//t->addChannel((char *)"Snoop", sim_dbg_out);
+	t->addChannel((char *)"Alive", sim_dbg_out);
+	t->addChannel((char *)"Broadcast", sim_dbg_out);
 
 	/* Read noise */
 	std::cout << "Configuring noise..." << std::endl;
@@ -175,21 +176,17 @@ static void * InputHandlerThread(void * args)
 			{
 				InjectFault(t, i_arg1, 0x00);
 			}
-			else if(strncmp(s_arg1, "BATTERY", strlen("BATTERY")) == 0)
+			else if(strncmp(s_arg1, "ALIVE", strlen("ALIVE")) == 0)
 			{
-				InjectFault(t, i_arg1, 0x08);
+				InjectFault(t, i_arg1, 0x02);
 			}
 			else if(strncmp(s_arg1, "RADIO", strlen("RADIO")) == 0)
 			{
 				InjectFault(t, i_arg1, 0x04);
 			}
-			else if(strncmp(s_arg1, "SENSOR", strlen("SENSOR")) == 0)
+			else if(strncmp(s_arg1, "BATTERY", strlen("BATTERY")) == 0)
 			{
-				InjectFault(t, i_arg1, 0x01);
-			}
-			else if(strncmp(s_arg1, "BIT", strlen("BIT")) == 0)
-			{
-				InjectFault(t, i_arg1, 0x02);
+				InjectFault(t, i_arg1, 0x08);
 			}
 		}
 		else
@@ -207,7 +204,7 @@ static void PrintOptions()
 	std::cout << "---------------------------------------------" << std::endl;
 	std::cout << "Options:" << std::endl;
 	std::cout << "\tnetwork update\t\tSend a routing update request" << std::endl;
-	std::cout << "\tfault [node] [CLEAR|RADIO|BATTERY|SENSOR|BIT]\tInject a fault into the simulation" << std::endl;
+	std::cout << "\tfault [node] [CLEAR|ALIVE|RADIO|BATTERY]\tInject a fault into the simulation" << std::endl;
 	std::cout << std::endl;
 }
 
@@ -237,37 +234,52 @@ static void * SerialListenThread(void * args)
 	while(1)
 	{
 		uint8_t * packet = (uint8_t *)sim_sf_read_packet(fd, &len);
-		if(len != sizeof(serial_header_t) + sizeof(message_payload_t))
-		{
-			LogTcDbg("Rxed unknown message type!\n");
-			LogTcDbg("%d != (%lu + %lu)\n", len,
-					sizeof(serial_header_t),
-					sizeof(message_payload_t));
-		}
-		else if(!packet)
+		if(!packet)
 		{
 			LogTcDbg("Failed to rx packet\n");
 		}
 		else
 		{
 			serial_header_t * header = (serial_header_t *)packet;
-			message_payload_t * payload = (message_payload_t *)(packet + sizeof(serial_header_t));
-			//hexprint((uint8_t*)packet, len);
-			LogTcDbg("*********NEW BaseNode MESSAGE*********\n");
-			/*LogTcDbg("---------HEADER-----------------\n");
-			LogTcDbg("Source Addr: %d\n", header->src);
-			LogTcDbg("Dest Addr: %d\n", header->dest);
-			LogTcDbg("Group: %d\n", header->group);
-			LogTcDbg("Type: %d\n", header->type);
-			LogTcDbg("Payload Length: %d\n", header->length);*/
-			LogTcDbg("---------PAYLOAD----------------\n");
-			LogTcDbg("Node ID: %d\n", ntohs(payload->node_id));
-			LogTcDbg("Next Hop: %d\n", ntohs(payload->next_hop));
-			LogTcDbg("Sensor Reading: %d\n", ntohs(payload->sensor_reading));
-			LogTcDbg("Sensor BIT: %d\n", payload->sensor_status);
-			LogTcDbg("********************************\n");
 
-			my_queue.Enqueue(*payload);
+			if(header->type == SENSOR_TYPE)
+			{
+				message_payload_t * payload = (message_payload_t *)(packet + sizeof(serial_header_t));
+				//hexprint((uint8_t*)packet, len);
+				LogTcDbg("*********NEW BASE MESSAGE*********\n");
+				/*LogTcDbg("---------HEADER-----------------\n");
+				LogTcDbg("Source Addr: %d\n", header->src);
+				LogTcDbg("Dest Addr: %d\n", header->dest);
+				LogTcDbg("Group: %d\n", header->group);
+				LogTcDbg("Type: %d\n", header->type);
+				LogTcDbg("Payload Length: %d\n", header->length);*/
+				LogTcDbg("---------PAYLOAD----------------\n");
+				LogTcDbg("Node ID: %d\n", ntohs(payload->node_id));
+				LogTcDbg("Sensor Data: %d\n", ntohs(payload->sensor_data));
+				LogTcDbg("Voltage: %d\n", ntohs(payload->voltage));
+				LogTcDbg("********************************\n");
+
+				my_queue.Enqueue(*payload);
+			}
+			else if(header->type == EXT_TYPE)
+			{
+				ext_message_payload_t * payload = (ext_message_payload_t *)(packet + sizeof(serial_header_t));
+				//hexprint((uint8_t*)packet, len);
+				LogTcDbg("*********NEW EXT MESSAGE*********\n");
+				/*LogTcDbg("---------HEADER-----------------\n");
+				LogTcDbg("Source Addr: %d\n", header->src);
+				LogTcDbg("Dest Addr: %d\n", header->dest);
+				LogTcDbg("Group: %d\n", header->group);
+				LogTcDbg("Type: %d\n", header->type);
+				LogTcDbg("Payload Length: %d\n", header->length);*/
+				LogTcDbg("---------PAYLOAD----------------\n");
+				LogTcDbg("Node ID: %d\n", ntohs(payload->node_id));
+				LogTcDbg("Sensor Data: %d\n", ntohs(payload->sensor_data));
+				LogTcDbg("Voltage: %d\n", ntohs(payload->voltage));
+				LogTcDbg("Info Type: %d\n", payload->info_type);
+				LogTcDbg("Info Addr: %d\n", ntohs(payload->info_addr));
+				LogTcDbg("********************************\n");
+			}
 		}
 		free((void *)packet);
 	}
@@ -294,7 +306,7 @@ static void * SQLHandlerThread(void * args)
 	while(1){
 		message_payload_t payload = my_queue.Dequeue();
 		char query[128];
-		sprintf(query, insertTemplate, ntohs(payload.node_id), ntohs(payload.next_hop), ntohs(payload.sensor_reading), payload.sensor_status, 0);
+		sprintf(query, insertTemplate, ntohs(payload.node_id), ntohs(payload.sensor_data), ntohs(payload.voltage), 0, 0);
 		rc = sqlite3_exec(db, query, 0, 0, &err_msg);
 		
 		if (rc != SQLITE_OK ) {

@@ -10,6 +10,7 @@ module hmC @safe()
 		interface Boot;
 		interface Leds;
 		interface Timer<TMilli> as Timer0;
+		interface Timer<TMilli> as Timer1;
 		interface Random;
 		
 		interface SplitControl as SerialControl;
@@ -24,6 +25,7 @@ module hmC @safe()
 		interface Receive as RadioReceiveSensor;
 		interface Receive as RadioReceiveRoute;
 		interface Receive as RadioReceiveFault;
+		interface Receive as RadioReceiveAlive;
 		//interface Receive as RadioReceiveSnoop[am_id_t id];
 		interface Packet as RadioPacket;
 		interface AMPacket as RadioAMPacket;
@@ -45,29 +47,33 @@ implementation
 	bool       radioBusy;
 	bool	   radioFull;
 	
+	bool 	   rerouting; /* Are we sending to 1 or 2? */
+	am_addr_t  radio_dest2; /* Where to go if dest is down */
 	am_addr_t  radio_dest; /* Where to send all radio messages */
 	uint8_t	   last_cmd_id; /* Track what the last route message used was */
 	uint16_t   current_distance; /* How many hops to sink */
-	uint8_t    current_fault;
-	uint16_t   backoff_time;
+	uint8_t    injected_fault; /* Fault injection for simulation only */
+	
+	neighbor_t neighbors[MAX_NEIGHBORS];
+	neighbor_info_t info_queue[INFO_QUEUE_LEN];
+	uint8_t		infoIn;
+	uint8_t		infoOut;
 	
 	/* Task prototypes */
-	task void radioSendBroadcastTask();
-	task void radioSendUnicastTask();
+	task void radioSendTask();
 	task void uartSendTask();
 	
 	/* Helper for send */
-	void radioSendTask(am_addr_t dst);
+	void radioAddUnicast(am_addr_t dst, uint8_t type, void * payload, uint8_t payload_size);
+	void radioAddBroadcast(uint8_t type, void * payload, uint8_t payload_size);
+	void serialAdd(uint8_t type, void * payload, uint8_t payload_size);
 	
-	void failBlink() 
-	{
-		call Leds.led2Toggle();
-	}
+	/* Neighbor maintenance */
+	void decrement_neighbors();
+	void update_neighbor(uint16_t node_id, uint8_t hops_to_sink);
 	
-	void dropBlink() 
-	{
-		call Leds.led2Toggle();
-	}
+	void failBlink() {call Leds.led2Toggle();}
+	void dropBlink() {call Leds.led2Toggle();}
 
 	/* Initialization task */
 	event void Boot.booted() 
@@ -88,59 +94,76 @@ implementation
 		radioIn = radioOut = 0;
 		radioBusy = FALSE;
 		radioFull = TRUE;
+		
+		infoIn = infoOut = 0;
 
 		if (call RadioControl.start() == EALREADY)
 		{
 			radio_dest = BASE_STATION_NODE_ID;
+			radio_dest2 = BASE_STATION_NODE_ID;
 			last_cmd_id = 0;
 			current_distance = 0;
+			rerouting = FALSE;
 			radioFull = FALSE;
 		}
+		
 		dbg("Boot","Boot: Node %d radio started.\n", TOS_NODE_ID);
 
 		if(TOS_NODE_ID != BASE_STATION_NODE_ID)
 		{
-			call Timer0.startPeriodic(TIMER_PERIOD_MILLI);
+			call Timer0.startPeriodic(SENSE_PERIOD_MILLI);
+			call Timer1.startPeriodic(ALIVE_PERIOD_MILLI);
 			dbg("Boot","Boot: Node %d timer started.\n", TOS_NODE_ID);
 		}
 	}
 
-	/* Timer0 periodic function */
+	/* Timer0 periodic function - 'read' sensors */
 	event void Timer0.fired() 
 	{
-		message_payload_t payload;
-		payload.node_id = TOS_NODE_ID;
+		uint16_t sensor_data;
 		
 		/* Generate random sensor data 
 		 * Limit to 0x0080 - 0x0FFF for normal behavior */
-		payload.sensor_reading = call Random.rand16();
-		if(!(current_fault & BAD_SENSOR_READINGS || current_fault & FAIL_SENSOR))
-		{
-			payload.sensor_reading &= 0x03FF;
-			payload.sensor_reading |= 0x0080;
-		}
+		sensor_data = call Random.rand16();
+		sensor_data &= 0x03FF;
+		sensor_data |= 0x0080;
 		//dbg("Payload","Payload: %d\n", payload.sensor_reading);
 		
-		if(current_fault & FAIL_SENSOR)
+		/* Check if we should send extended message or not */
+		if(infoIn != infoOut)
 		{
-			payload.sensor_status = BIT_FAILED;
+			ext_message_payload_t payload;
+			payload.node_id = TOS_NODE_ID;
+			payload.sensor_data = sensor_data;
+			payload.info_type = info_queue[infoOut].info_type;
+			payload.info_addr = info_queue[infoOut].info_addr;
+			radioAddUnicast(radio_dest, EXT_TYPE, (void *)&payload, sizeof(ext_message_payload_t));
+			
+			if (++infoOut >= INFO_QUEUE_LEN)
+			{
+				infoOut = 0;
+			}
 		}
 		else
 		{
-			payload.sensor_status = BIT_OK;	
+			message_payload_t payload;
+			payload.node_id = TOS_NODE_ID;
+			payload.sensor_data = sensor_data;
+			radioAddUnicast(radio_dest, SENSOR_TYPE, (void *)&payload, sizeof(message_payload_t));
 		}
+	}
+	
+	/* Timer1 periodic function - broadcast alive message*/
+	event void Timer1.fired() 
+	{
+		alive_message_t alive_data;
+		alive_data.hops_to_sink = current_distance;
 		
-		payload.next_hop = (uint16_t)radio_dest;
+		decrement_neighbors();
 		
-		call RadioAMPacket.setType(&radioQueueBufs[radioIn], SENSOR_TYPE);
-		memcpy(radioQueueBufs[radioIn].data, &payload, sizeof(message_payload_t));
-		call RadioPacket.setPayloadLength(&radioQueueBufs[radioIn], sizeof(message_payload_t));
-		radioIn = (radioIn + 1) % RADIO_QUEUE_LEN;
-		if (!radioBusy)
-		{
-			post radioSendUnicastTask();
-			radioBusy = TRUE;
-		}
+		//broadcast message
+		if(!(injected_fault & (FAIL_ALIVE | FAIL_BATTERY)))
+			radioAddBroadcast(ALIVE_TYPE, (void *)&alive_data, sizeof(alive_message_t));
 	}
 	
 	/* Serial control functions */
@@ -154,7 +177,7 @@ implementation
 	
 	event void SerialControl.stopDone(error_t error) {}
 	
-	/* Only handles messages of type 1 */
+	/* Only handles messages of NETWORK_TYPE */
 	event message_t *UartReceive.receive(message_t *msg, void *payload, uint8_t len) 
 	{
 		message_t * ret = msg;
@@ -167,15 +190,7 @@ implementation
 		route_cmd.hops_to_sink = 0;
 		route_cmd.cmd_id = net_cmd->cmd_num;
 		
-		call RadioAMPacket.setType(&radioQueueBufs[radioIn], NETWORK_TYPE);
-		memcpy(radioQueueBufs[radioIn].data, &route_cmd, sizeof(network_route_t));
-		call RadioPacket.setPayloadLength(&radioQueueBufs[radioIn], sizeof(network_route_t));
-		radioIn = (radioIn + 1) % RADIO_QUEUE_LEN;
-		if (!radioBusy)
-		{
-			post radioSendBroadcastTask();
-			radioBusy = TRUE;
-		}
+		radioAddBroadcast(NETWORK_TYPE, (void *)&route_cmd, sizeof(network_route_t));
 		
 		return ret;
 	}
@@ -184,9 +199,9 @@ implementation
 	{
 		uint8_t len;
 		am_id_t id;
-		am_addr_t addr, src;
+		am_addr_t dst;
 		message_t* msg;
-		am_group_t grp;
+		
 		atomic
 		{
 			if (uartIn == uartOut && !uartFull)
@@ -199,13 +214,11 @@ implementation
 		msg = &uartQueueBufs[uartOut];
 		id = call UartAMPacket.type(msg);
 		len = call UartPacket.payloadLength(msg);
-		call UartPacket.clear(msg);
-		call UartAMPacket.setSource(msg, TOS_NODE_ID);
-		call UartAMPacket.setGroup(msg, 0);
+		dst = call UartAMPacket.destination(msg);
 		
 		dbg("Serial", "Uart message of len %d\n", len);
 
-		if (call UartSend.send[id](0, msg, len) == SUCCESS)
+		if (call UartSend.send[id](dst, msg, len) == SUCCESS)
 		{
 			call Leds.led1Toggle();
 		}
@@ -261,57 +274,57 @@ implementation
 	event message_t *RadioReceiveSensor.receive(message_t *msg, void *payload, uint8_t len) 
 	{
 		message_t *ret = msg;
+		uint8_t id = call RadioAMPacket.type(msg);
 		if(TOS_NODE_ID == BASE_STATION_NODE_ID)
 		{
-			/* Send message over serial */
-			call UartAMPacket.setType(&uartQueueBufs[uartIn], SENSOR_TYPE);
-			memcpy(uartQueueBufs[uartIn].data, payload, sizeof(message_payload_t));
-			call UartPacket.setPayloadLength(&uartQueueBufs[uartIn], sizeof(message_payload_t));
-			uartIn = (uartIn + 1) % UART_QUEUE_LEN;
-			if (!uartBusy)
-			{
-				post uartSendTask();
-				uartBusy = TRUE;
-			}
+			serialAdd(id, payload, len);
 		}
 		else
 		{
-			/* Forward message over radio */
-			call RadioAMPacket.setType(&radioQueueBufs[radioIn], SENSOR_TYPE);
-			memcpy(radioQueueBufs[radioIn].data, payload, sizeof(message_payload_t));
-			call RadioPacket.setPayloadLength(&radioQueueBufs[radioIn], sizeof(message_payload_t));
-			radioIn = (radioIn + 1) % RADIO_QUEUE_LEN;
-			if (!radioBusy)
-			{
-				post radioSendUnicastTask();
-				radioBusy = TRUE;
-			}
+			radioAddUnicast(radio_dest, id, payload, len);
 		}
 		
 		return ret;
 	}
 	
+	/*************************************************************************************
+	 * event message_t *RadioReceiveFault.receive(message_t *msg, void *payload, uint8_t len) 
+	 * 
+	 * 
+	 * 
+	 *************************************************************************************/
 	event message_t *RadioReceiveFault.receive(message_t *msg, void *payload, uint8_t len) 
 	{
 		message_t *ret = msg;
 		fault_command_t * fault_cmd = (fault_command_t *)payload;
 		dbg("Fault", "Fault message received.\n");
-		current_fault = fault_cmd->fault_type;
+		injected_fault = fault_cmd->fault_type;
 		return ret;
 	}
 	
-	/*event message_t *RadioReceiveSnoop.receive[am_id_t id](message_t *msg, void *payload, uint8_t len) 
+	/*************************************************************************************
+	 * event message_t *RadioReceiveAlive.receive(message_t *msg, void *payload, uint8_t len) 
+	 * 
+	 * 
+	 * 
+	 *************************************************************************************/
+	event message_t *RadioReceiveAlive.receive(message_t *msg, void *payload, uint8_t len) 
 	{
 		message_t *ret = msg;
-		am_addr_t msg_src = call RadioAMPacket.source(msg);
-		uint8_t type = call UartAMPacket.type(msg);
-		dbg("Snoop", "Overheard message of type %d from %d\n", type, msg_src);
+		dbg("Alive", "Alive message received from %d.\n", call RadioAMPacket.source(msg));
+		update_neighbor(call RadioAMPacket.source(msg), ((alive_message_t *)payload)->hops_to_sink);
 		return ret;
-	}*/
-	
+	}
+
 	/* On a route message, we want to update the route to the closest node with
 	 * the least number of hops to the sink.
 	 */
+	/*************************************************************************************
+	 * event message_t *RadioReceiveRoute.receive(message_t *msg, void *payload, uint8_t len) 
+	 * 
+	 * 
+	 * 
+	 *************************************************************************************/	 
 	event message_t *RadioReceiveRoute.receive(message_t *msg, void *payload, uint8_t len) 
 	{
 		message_t *ret = msg;
@@ -349,59 +362,19 @@ implementation
 				dbg("Route", "Updating route to %d (distance: %d).\n", radio_dest, current_distance);
 				route_cmd->hops_to_sink = current_distance + 1;
 				
-				call RadioAMPacket.setType(&radioQueueBufs[radioIn], NETWORK_TYPE);
-				memcpy(radioQueueBufs[radioIn].data, route_cmd, sizeof(network_route_t));
-				call RadioPacket.setPayloadLength(&radioQueueBufs[radioIn], sizeof(network_route_t));
-				radioIn = (radioIn + 1) % RADIO_QUEUE_LEN;
-				if (!radioBusy)
-				{
-					post radioSendBroadcastTask();
-					radioBusy = TRUE;
-				}
+				radioAddBroadcast(NETWORK_TYPE, (void *)route_cmd, sizeof(network_route_t));
 			}
 		}
 		
 		return ret;
 	}
 	
-	task void radioSendBroadcastTask()
-	{
-		radioSendTask(AM_BROADCAST_ADDR); 
-	}
-	
-	task void radioSendUnicastTask()
-	{
-		radioSendTask(radio_dest);
-	}
-	
-	void radioSendTask(am_addr_t dst) 
+	task void radioSendTask() 
 	{
 		uint8_t len;
 		am_id_t id;
-		am_addr_t source;
+		am_addr_t dst;
 		message_t* msg;
-		uint16_t feeling_lucky;
-		
-		/* If fail radio set, back off for a random
-		 * amount of time before sending
-		 */
-		if(current_fault & FAIL_RADIO)
-		{
-			feeling_lucky = call Random.rand16();
-			if(feeling_lucky % 4 != 0)
-			{
-				dbg("Fault", "Radio issues. Transmit failure %d.\n", feeling_lucky % 4);
-				radioBusy = FALSE;
-				return;	
-			}
-		}
-		
-		/* If fail battery set, dont respond ever */
-		if(current_fault & FAIL_BATTERY)
-		{
-			radioBusy = FALSE;
-			return;
-		}
 
 		atomic
 		{
@@ -413,11 +386,9 @@ implementation
 		}
 
 		msg = &radioQueueBufs[radioOut];
-		source = (am_addr_t)TOS_NODE_ID;
 		id = call RadioAMPacket.type(msg);
 		len = call RadioPacket.payloadLength(msg);
-		call RadioPacket.clear(msg);
-		call RadioAMPacket.setSource(msg, source);
+		dst = call RadioAMPacket.destination(msg);
 		
 		//dbg("Route", "Sending from %d to %d.\n", call RadioAMPacket.source(msg), dst);
 		
@@ -428,14 +399,7 @@ implementation
 		else
 		{
 			failBlink();
-			if(dst == AM_BROADCAST_ADDR)
-			{
-				post radioSendBroadcastTask();
-			}
-			else
-			{
-				post radioSendUnicastTask();
-			}
+			post radioSendTask();
 		}
 	}
 
@@ -464,13 +428,120 @@ implementation
 		}
 
 		/* Keep calling until radio queue is empty */
-	    if(call RadioAMPacket.destination(msg) == AM_BROADCAST_ADDR)
+		post radioSendTask();
+	}
+	
+	void radioAddUnicast(am_addr_t dst, uint8_t type, void * payload, uint8_t payload_size)
+	{
+		if(injected_fault & (FAIL_DATA | FAIL_BATTERY))
+			return;
+			
+		call RadioAMPacket.setType(&radioQueueBufs[radioIn], type);
+		call RadioAMPacket.setDestination(&radioQueueBufs[radioIn], dst);
+		call RadioAMPacket.setSource(&radioQueueBufs[radioIn], TOS_NODE_ID);
+		call RadioPacket.setPayloadLength(&radioQueueBufs[radioIn], payload_size);
+		
+		memcpy(radioQueueBufs[radioIn].data, payload, payload_size);
+		
+		radioIn = (radioIn + 1) % RADIO_QUEUE_LEN;
+		if (!radioBusy)
 		{
-			post radioSendBroadcastTask();
+			post radioSendTask();
+			radioBusy = TRUE;
 		}
-		else
+	}
+	
+	void radioAddBroadcast(uint8_t type, void * payload, uint8_t payload_size)
+	{
+		radioAddUnicast(AM_BROADCAST_ADDR, type, payload, payload_size);
+	}
+	
+	void serialAdd(uint8_t type, void * payload, uint8_t payload_size)
+	{
+		/* Send message over serial */
+		call UartAMPacket.setType(&uartQueueBufs[uartIn], type);
+		call UartAMPacket.setDestination(&uartQueueBufs[uartIn], 0x00);
+		call UartAMPacket.setSource(&uartQueueBufs[uartIn], TOS_NODE_ID);
+		call UartAMPacket.setGroup(&uartQueueBufs[uartIn], 0);
+		call UartPacket.setPayloadLength(&uartQueueBufs[uartIn], payload_size);
+		
+		memcpy(uartQueueBufs[uartIn].data, payload, payload_size);
+		
+		uartIn = (uartIn + 1) % UART_QUEUE_LEN;
+		if (!uartBusy)
 		{
-			post radioSendUnicastTask();
+			post uartSendTask();
+			uartBusy = TRUE;
+		}
+	}
+	
+	void decrement_neighbors()
+	{	
+		unsigned int i;
+		for(i=0; i < MAX_NEIGHBORS; i++)
+		{
+			if(neighbors[i].node_id && neighbors[i].count != 0)
+			{
+				neighbors[i].count -= ALIVE_DEC_BY;
+				
+				if(neighbors[i].count == 0)
+				{
+					info_queue[infoIn].info_type = LOST_NODE;
+					info_queue[infoIn].info_addr = neighbors[i].node_id;
+					infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
+					dbg("Alive", "Lost contact with %d!.\n", neighbors[i].node_id);
+				}
+			}
+		}
+	}
+	
+	void update_neighbor(am_addr_t node_id, uint8_t hops_to_sink)
+	{
+		unsigned int i;
+		unsigned int found = 0;
+		for(i=0; i < MAX_NEIGHBORS; i++)
+		{
+			if(neighbors[i].node_id == node_id)
+			{
+				found = 1;
+				neighbors[i].hops_to_sink = hops_to_sink;
+				
+				if(neighbors[i].count == 0)
+				{
+					info_queue[infoIn].info_type = FOUND_NODE;
+					info_queue[infoIn].info_addr = neighbors[i].node_id;
+					infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
+					dbg("Alive", "Rediscovered %d!.\n", neighbors[i].node_id);
+					
+					neighbors[i].count = MAX_ALIVE_COUNT;
+				}
+				
+				if(neighbors[i].count != MAX_ALIVE_COUNT)
+				{
+					neighbors[i].count += 1;
+				}
+				
+				break;
+			}
+		}
+		
+		if(!found)
+		{
+			for(i=0; i < MAX_NEIGHBORS; i++)
+			{
+				if(!neighbors[i].node_id)
+				{
+					info_queue[infoIn].info_type = FOUND_NODE;
+					info_queue[infoIn].info_addr = node_id;
+					infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
+					dbg("Alive", "Discovered %d.\n", node_id);
+					
+					neighbors[i].node_id = node_id;
+					neighbors[i].count = MAX_ALIVE_COUNT;
+					neighbors[i].hops_to_sink = hops_to_sink;
+					break;
+				}
+			}			
 		}
 	}
 

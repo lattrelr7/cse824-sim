@@ -7,6 +7,7 @@ implementation
 	components MainC;
 	components LedsC;
 	components new TimerMilliC() as Timer0;
+	components new TimerMilliC() as Timer1;
 	components SerialActiveMessageC as Serial;
 	components ActiveMessageC as Radio;
 	components hmC as App;
@@ -14,6 +15,7 @@ implementation
 
 	MainC.Boot <- App;
 	App.Timer0 -> Timer0;
+	App.Timer1 -> Timer1;
 	App.Leds -> LedsC;
 	App.Random -> RandomC;
 	
@@ -26,8 +28,10 @@ implementation
 	App.RadioControl -> Radio;
 	App.RadioSend -> Radio;
 	App.RadioReceiveSensor -> Radio.Receive[SENSOR_TYPE];
+	App.RadioReceiveSensor -> Radio.Receive[EXT_TYPE];
 	App.RadioReceiveFault -> Radio.Receive[FAULT_TYPE];
 	App.RadioReceiveRoute -> Radio.Receive[NETWORK_TYPE];
+	App.RadioReceiveAlive -> Radio.Receive[ALIVE_TYPE];
 	//App.RadioReceiveSnoop -> Radio.Snoop;
 	App.RadioPacket -> Radio;
 	App.RadioAMPacket -> Radio;

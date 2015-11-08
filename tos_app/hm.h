@@ -1,39 +1,59 @@
 #ifndef HMAPP_H
 #define HMAPP_H
 
-enum 
-{
-	TIMER_PERIOD_MILLI = 5000,
-	UART_QUEUE_LEN = 12,
-	RADIO_QUEUE_LEN = 12,
-	BASE_STATION_NODE_ID = 0,
-};
+#define SENSE_PERIOD_MILLI 10000
+#define ALIVE_PERIOD_MILLI 30000
+#define UART_QUEUE_LEN 12
+#define RADIO_QUEUE_LEN 12
+#define INFO_QUEUE_LEN 12
+#define BASE_STATION_NODE_ID 0
+#define MAX_NEIGHBORS 25
+#define MAX_ALIVE_COUNT 4
+#define ALIVE_DEC_BY 1
 
 enum MESSAGE_TYPES
 {
 	SENSOR_TYPE = 0, /* Periodic message from sensor */
+	EXT_TYPE = 4, /* Extended sensor type message */
 	NETWORK_TYPE = 1, /* Command from CMC (routing) */
 	FAULT_TYPE = 2, /* Fault injection message */
+	ALIVE_TYPE = 3, /* Node alive broadcast - no payload */
 };
 
 enum FAULT_TYPES
 {
-	BAD_SENSOR_READINGS = 0x01, /* Return abnormal values */
-	FAIL_SENSOR = 0x02, /* Report BIT fault */
-	FAIL_RADIO = 0x04, /* Intermittent responses */
-	FAIL_BATTERY = 0x08, /* Stop responding */
-};
-
-enum BIT_TYPES
-{
-	BIT_OK = 0,
-	BIT_FAILED = 1,
+	UNDEF = 0x01, /* */
+	FAIL_ALIVE = 0x02, /* Stop alive tx */
+	FAIL_DATA = 0x04, /* Stop sensor data tx */
+	FAIL_BATTERY = 0x08, /* Stop both */
 };
 
 enum NETWORK_COMMAND_TYPES
 {
 	UPDATE_ROUTE,
 };
+
+enum INFO_TYPES
+{
+	FOUND_NODE,
+	LOST_NODE,
+};
+
+typedef nx_struct neighbor_t {
+	nx_uint16_t node_id;
+	nx_uint8_t count;
+	nx_uint8_t hops_to_sink;
+} neighbor_t;
+
+typedef nx_struct neighbor_info_t {
+	nx_uint8_t info_type;
+	nx_uint16_t info_addr;
+} neighbor_info_t;
+
+/* Alive message */
+typedef nx_struct alive_message_t {
+	nx_uint8_t hops_to_sink;
+} alive_message_t;
 
 /* Fault injection */
 typedef nx_struct fault_command_t {
@@ -51,17 +71,20 @@ typedef nx_struct network_route_t {
 	nx_uint8_t hops_to_sink;
 } network_route_t;
 
-/* HM specific data */
-typedef nx_struct health_data_t {
-	nx_uint16_t p1;
-} health_data_t;
-
 /* General payload structure */
 typedef nx_struct message_payload_t {
 	nx_uint16_t node_id;
-	nx_uint16_t sensor_reading;
-	nx_uint8_t sensor_status;
-	nx_uint16_t next_hop;
+	nx_uint16_t voltage;
+	nx_uint16_t sensor_data;
 } message_payload_t;
+
+/* Extended payload structure */
+typedef nx_struct ext_message_payload_t {
+	nx_uint16_t node_id;
+	nx_uint16_t voltage;
+	nx_uint16_t sensor_data;
+	nx_uint8_t info_type;
+	nx_uint16_t info_addr;
+} ext_message_payload_t;
 
 #endif
