@@ -12,6 +12,7 @@ enum MESSAGE_TYPES
 	NETWORK_TYPE = 1, /* Command from CMC (routing) */
 	FAULT_TYPE = 2, /* Fault injection message */
 	ALIVE_TYPE = 3, /* Node alive broadcast - no payload */
+	INFO_ONLY = 5, /* Message from sink */
 };
 
 enum FAULT_TYPES
@@ -51,15 +52,24 @@ struct serial_header_t {
 } __attribute__ ((packed));
 
 struct message_payload_t {
+	uint8_t ttl;
 	uint16_t node_id;
+	uint16_t next_hop;
 	uint16_t voltage;
 	uint16_t sensor_data;
 } __attribute__ ((packed));
 
 struct ext_message_payload_t {
+	uint8_t ttl;
 	uint16_t node_id;
+	uint16_t next_hop;
 	uint16_t voltage;
 	uint16_t sensor_data;
+	uint8_t info_type;
+	uint16_t info_addr;
+} __attribute__ ((packed));
+
+struct info_payload_t {
 	uint8_t info_type;
 	uint16_t info_addr;
 } __attribute__ ((packed));

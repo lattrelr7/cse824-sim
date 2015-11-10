@@ -47,8 +47,6 @@ implementation
 	bool       radioBusy;
 	bool	   radioFull;
 	
-	bool 	   rerouting; /* Are we sending to 1 or 2? */
-	am_addr_t  radio_dest2; /* Where to go if dest is down */
 	am_addr_t  radio_dest; /* Where to send all radio messages */
 	uint8_t	   last_cmd_id; /* Track what the last route message used was */
 	uint16_t   current_distance; /* How many hops to sink */
@@ -71,6 +69,8 @@ implementation
 	/* Neighbor maintenance */
 	void decrement_neighbors();
 	void update_neighbor(uint16_t node_id, uint8_t hops_to_sink);
+	void update_route(am_addr_t node_id, uint8_t hops_to_sink);
+	void check_for_lost_route(am_addr_t node_id);
 	
 	void failBlink() {call Leds.led2Toggle();}
 	void dropBlink() {call Leds.led2Toggle();}
@@ -100,19 +100,19 @@ implementation
 		if (call RadioControl.start() == EALREADY)
 		{
 			radio_dest = BASE_STATION_NODE_ID;
-			radio_dest2 = BASE_STATION_NODE_ID;
 			last_cmd_id = 0;
 			current_distance = 0;
-			rerouting = FALSE;
 			radioFull = FALSE;
 		}
+		
+		call Timer1.startPeriodic(ALIVE_PERIOD_MILLI);
 		
 		dbg("Boot","Boot: Node %d radio started.\n", TOS_NODE_ID);
 
 		if(TOS_NODE_ID != BASE_STATION_NODE_ID)
 		{
+			current_distance = 99; /* Node starts not knowing if it can reach sink */
 			call Timer0.startPeriodic(SENSE_PERIOD_MILLI);
-			call Timer1.startPeriodic(ALIVE_PERIOD_MILLI);
 			dbg("Boot","Boot: Node %d timer started.\n", TOS_NODE_ID);
 		}
 	}
@@ -133,7 +133,9 @@ implementation
 		if(infoIn != infoOut)
 		{
 			ext_message_payload_t payload;
+			payload.ttl = current_distance;
 			payload.node_id = TOS_NODE_ID;
+			payload.next_hop = radio_dest;
 			payload.sensor_data = sensor_data;
 			payload.info_type = info_queue[infoOut].info_type;
 			payload.info_addr = info_queue[infoOut].info_addr;
@@ -147,7 +149,9 @@ implementation
 		else
 		{
 			message_payload_t payload;
+			payload.ttl = current_distance;
 			payload.node_id = TOS_NODE_ID;
+			payload.next_hop = radio_dest;
 			payload.sensor_data = sensor_data;
 			radioAddUnicast(radio_dest, SENSOR_TYPE, (void *)&payload, sizeof(message_payload_t));
 		}
@@ -156,6 +160,7 @@ implementation
 	/* Timer1 periodic function - broadcast alive message*/
 	event void Timer1.fired() 
 	{
+		info_payload_t payload; //for sink only
 		alive_message_t alive_data;
 		alive_data.hops_to_sink = current_distance;
 		
@@ -164,6 +169,21 @@ implementation
 		//broadcast message
 		if(!(injected_fault & (FAIL_ALIVE | FAIL_BATTERY)))
 			radioAddBroadcast(ALIVE_TYPE, (void *)&alive_data, sizeof(alive_message_t));
+			
+		/* This is the sinks best opportunity to do this 
+		 * ! doesn't work well in large network -- too much traffic
+		 * going to the sink already.*/
+		if(TOS_NODE_ID == BASE_STATION_NODE_ID && infoIn != infoOut)
+		{
+			payload.info_type = info_queue[infoOut].info_type;
+			payload.info_addr = info_queue[infoOut].info_addr;
+			serialAdd(INFO_ONLY, (void *)&payload, sizeof(info_payload_t));
+			
+			if (++infoOut >= INFO_QUEUE_LEN)
+			{
+				infoOut = 0;
+			}
+		}
 	}
 	
 	/* Serial control functions */
@@ -281,7 +301,18 @@ implementation
 		}
 		else
 		{
-			radioAddUnicast(radio_dest, id, payload, len);
+			/* Verify that we are not forwarding a packet this node created 
+			 * to avoid endless loops, also update and check ttl
+			 */
+			((message_payload_t*)payload)->ttl -= 1;
+			if(((message_payload_t*)payload)->node_id != TOS_NODE_ID && 
+			   ((message_payload_t*)payload)->ttl)
+				radioAddUnicast(radio_dest, id, payload, len);
+				
+			if(!((message_payload_t*)payload)->ttl)
+			{
+				dbg("Route", "TTL expired, not forwarding.\n");
+			}
 		}
 		
 		return ret;
@@ -337,7 +368,7 @@ implementation
 			 */
 			if(route_cmd->cmd_id > last_cmd_id)
 			{
-				current_distance = route_cmd->hops_to_sink;
+				current_distance = route_cmd->hops_to_sink + 1;
 				radio_dest = call RadioAMPacket.source(msg);
 				last_cmd_id = route_cmd->cmd_id;
 				send_update = 1;
@@ -348,9 +379,9 @@ implementation
 			* number of hops
 			*/
 			else if(route_cmd->cmd_id == last_cmd_id &&
-			 		route_cmd->hops_to_sink < current_distance)
+			 		(route_cmd->hops_to_sink + 1) < current_distance)
 			{
-				current_distance = route_cmd->hops_to_sink;
+				current_distance = route_cmd->hops_to_sink + 1;
 				radio_dest = call RadioAMPacket.source(msg);
 				send_update = 1;			 	
 			}
@@ -360,7 +391,7 @@ implementation
 			if(send_update)
 			{
 				dbg("Route", "Updating route to %d (distance: %d).\n", radio_dest, current_distance);
-				route_cmd->hops_to_sink = current_distance + 1;
+				route_cmd->hops_to_sink = current_distance;
 				
 				radioAddBroadcast(NETWORK_TYPE, (void *)route_cmd, sizeof(network_route_t));
 			}
@@ -480,7 +511,7 @@ implementation
 		unsigned int i;
 		for(i=0; i < MAX_NEIGHBORS; i++)
 		{
-			if(neighbors[i].node_id && neighbors[i].count != 0)
+			if(neighbors[i].valid && neighbors[i].count != 0)
 			{
 				neighbors[i].count -= ALIVE_DEC_BY;
 				
@@ -490,6 +521,7 @@ implementation
 					info_queue[infoIn].info_addr = neighbors[i].node_id;
 					infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
 					dbg("Alive", "Lost contact with %d!.\n", neighbors[i].node_id);
+					check_for_lost_route(neighbors[i].node_id);
 				}
 			}
 		}
@@ -501,35 +533,31 @@ implementation
 		unsigned int found = 0;
 		for(i=0; i < MAX_NEIGHBORS; i++)
 		{
-			if(neighbors[i].node_id == node_id)
+			if(neighbors[i].node_id == node_id && neighbors[i].valid)
 			{
 				found = 1;
 				neighbors[i].hops_to_sink = hops_to_sink;
-				
+		
 				if(neighbors[i].count == 0)
 				{
 					info_queue[infoIn].info_type = FOUND_NODE;
 					info_queue[infoIn].info_addr = neighbors[i].node_id;
 					infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
 					dbg("Alive", "Rediscovered %d!.\n", neighbors[i].node_id);
-					
-					neighbors[i].count = MAX_ALIVE_COUNT;
 				}
 				
-				if(neighbors[i].count != MAX_ALIVE_COUNT)
-				{
-					neighbors[i].count += 1;
-				}
-				
+				neighbors[i].count = ALIVE_RESET_COUNT;
+				update_route(node_id, hops_to_sink);
 				break;
 			}
+			
 		}
 		
 		if(!found)
 		{
 			for(i=0; i < MAX_NEIGHBORS; i++)
 			{
-				if(!neighbors[i].node_id)
+				if(!neighbors[i].valid)
 				{
 					info_queue[infoIn].info_type = FOUND_NODE;
 					info_queue[infoIn].info_addr = node_id;
@@ -537,11 +565,60 @@ implementation
 					dbg("Alive", "Discovered %d.\n", node_id);
 					
 					neighbors[i].node_id = node_id;
-					neighbors[i].count = MAX_ALIVE_COUNT;
+					neighbors[i].count = ALIVE_RESET_COUNT;
 					neighbors[i].hops_to_sink = hops_to_sink;
+					neighbors[i].valid = 1;
+					
+					update_route(node_id, hops_to_sink);
+					
 					break;
 				}
 			}			
+		}
+	}
+	
+	/* If we find a new neighbor and it has a better distance, use it
+	 * instead of our original route.
+	 */
+	void update_route(am_addr_t node_id, uint8_t hops_to_sink)
+	{
+		if(hops_to_sink < (current_distance - 1))
+		{
+			dbg("Route", "Found a better route through %d with distance %d\n", node_id, hops_to_sink);
+			radio_dest = node_id;
+			current_distance = hops_to_sink + 1;
+		}
+	}
+	
+	/* If we lose contact with a node, check if it was the primary destination,
+	 * if it was choose a destination that is less than or equal to current
+	 * distance
+	 * 
+	 * A problem with this is that we can never go back to being worse, so
+	 * if there is a working route we will never find it if it means going
+	 * down the spanning tree.
+	 */
+	void check_for_lost_route(am_addr_t node_id)
+	{
+		uint8_t i;
+		
+		if(node_id == radio_dest)
+		{
+			dbg("Route", "Route to sink through %d broken!\n", node_id);
+			
+			for(i=0; i < MAX_NEIGHBORS; i++)
+			{
+				if(neighbors[i].node_id && neighbors[i].count != 0)
+				{
+					if(neighbors[i].hops_to_sink <= current_distance)
+					{
+						radio_dest = neighbors[i].node_id;
+						current_distance = neighbors[i].hops_to_sink + 1;
+						
+						dbg("Route", "New route through %d.\n", neighbors[i].node_id);
+					}
+				}
+			}
 		}
 	}
 

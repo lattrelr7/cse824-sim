@@ -242,7 +242,7 @@ static void * SerialListenThread(void * args)
 		{
 			serial_header_t * header = (serial_header_t *)packet;
 
-			if(header->type == SENSOR_TYPE)
+			if(header->type == SENSOR_TYPE || header->type == EXT_TYPE)
 			{
 				message_payload_t * payload = (message_payload_t *)(packet + sizeof(serial_header_t));
 				//hexprint((uint8_t*)packet, len);
@@ -255,27 +255,25 @@ static void * SerialListenThread(void * args)
 				LogTcDbg("Payload Length: %d\n", header->length);*/
 				LogTcDbg("---------PAYLOAD----------------\n");
 				LogTcDbg("Node ID: %d\n", ntohs(payload->node_id));
+				LogTcDbg("Next hop: %d\n", ntohs(payload->next_hop));
 				LogTcDbg("Sensor Data: %d\n", ntohs(payload->sensor_data));
 				LogTcDbg("Voltage: %d\n", ntohs(payload->voltage));
 				LogTcDbg("********************************\n");
 
 				my_queue.Enqueue(*payload);
 			}
-			else if(header->type == EXT_TYPE)
+			if(header->type == EXT_TYPE)
 			{
 				ext_message_payload_t * payload = (ext_message_payload_t *)(packet + sizeof(serial_header_t));
-				//hexprint((uint8_t*)packet, len);
-				LogTcDbg("*********NEW EXT MESSAGE*********\n");
-				/*LogTcDbg("---------HEADER-----------------\n");
-				LogTcDbg("Source Addr: %d\n", header->src);
-				LogTcDbg("Dest Addr: %d\n", header->dest);
-				LogTcDbg("Group: %d\n", header->group);
-				LogTcDbg("Type: %d\n", header->type);
-				LogTcDbg("Payload Length: %d\n", header->length);*/
-				LogTcDbg("---------PAYLOAD----------------\n");
-				LogTcDbg("Node ID: %d\n", ntohs(payload->node_id));
-				LogTcDbg("Sensor Data: %d\n", ntohs(payload->sensor_data));
-				LogTcDbg("Voltage: %d\n", ntohs(payload->voltage));
+				LogTcDbg("*********EXT MESSAGE*********\n");
+				LogTcDbg("Info Type: %d\n", payload->info_type);
+				LogTcDbg("Info Addr: %d\n", ntohs(payload->info_addr));
+				LogTcDbg("********************************\n");
+			}
+			if(header->type == INFO_ONLY)
+			{
+				info_payload_t * payload = (info_payload_t *)(packet + sizeof(serial_header_t));
+				LogTcDbg("*********SINK INFO MSG*********\n");
 				LogTcDbg("Info Type: %d\n", payload->info_type);
 				LogTcDbg("Info Addr: %d\n", ntohs(payload->info_addr));
 				LogTcDbg("********************************\n");

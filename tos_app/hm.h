@@ -8,7 +8,7 @@
 #define INFO_QUEUE_LEN 12
 #define BASE_STATION_NODE_ID 0
 #define MAX_NEIGHBORS 25
-#define MAX_ALIVE_COUNT 4
+#define ALIVE_RESET_COUNT 3
 #define ALIVE_DEC_BY 1
 
 enum MESSAGE_TYPES
@@ -18,6 +18,7 @@ enum MESSAGE_TYPES
 	NETWORK_TYPE = 1, /* Command from CMC (routing) */
 	FAULT_TYPE = 2, /* Fault injection message */
 	ALIVE_TYPE = 3, /* Node alive broadcast - no payload */
+	INFO_ONLY = 5, /* Message from sink */
 };
 
 enum FAULT_TYPES
@@ -43,6 +44,7 @@ typedef nx_struct neighbor_t {
 	nx_uint16_t node_id;
 	nx_uint8_t count;
 	nx_uint8_t hops_to_sink;
+	nx_uint8_t valid;
 } neighbor_t;
 
 typedef nx_struct neighbor_info_t {
@@ -73,18 +75,27 @@ typedef nx_struct network_route_t {
 
 /* General payload structure */
 typedef nx_struct message_payload_t {
+	nx_uint8_t ttl;
 	nx_uint16_t node_id;
+	nx_uint16_t next_hop;
 	nx_uint16_t voltage;
 	nx_uint16_t sensor_data;
 } message_payload_t;
 
 /* Extended payload structure */
 typedef nx_struct ext_message_payload_t {
+	nx_uint8_t ttl;
 	nx_uint16_t node_id;
+	nx_uint16_t next_hop;
 	nx_uint16_t voltage;
 	nx_uint16_t sensor_data;
 	nx_uint8_t info_type;
 	nx_uint16_t info_addr;
 } ext_message_payload_t;
+
+typedef nx_struct info_payload_t {
+	nx_uint8_t info_type;
+	nx_uint16_t info_addr;
+} info_payload_t;
 
 #endif
