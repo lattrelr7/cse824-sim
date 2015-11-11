@@ -180,7 +180,7 @@ static void * InputHandlerThread(void * args)
 			{
 				InjectFault(t, i_arg1, 0x02);
 			}
-			else if(strncmp(s_arg1, "RADIO", strlen("RADIO")) == 0)
+			else if(strncmp(s_arg1, "DATA", strlen("DATA")) == 0)
 			{
 				InjectFault(t, i_arg1, 0x04);
 			}
@@ -204,7 +204,7 @@ static void PrintOptions()
 	std::cout << "---------------------------------------------" << std::endl;
 	std::cout << "Options:" << std::endl;
 	std::cout << "\tnetwork update\t\tSend a routing update request" << std::endl;
-	std::cout << "\tfault [node] [CLEAR|ALIVE|RADIO|BATTERY]\tInject a fault into the simulation" << std::endl;
+	std::cout << "\tfault [node] [CLEAR|ALIVE|DATA|BATTERY]\tInject a fault into the simulation" << std::endl;
 	std::cout << std::endl;
 }
 
