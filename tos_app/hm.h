@@ -94,6 +94,7 @@ typedef nx_struct ext_message_payload_t {
 } ext_message_payload_t;
 
 typedef nx_struct info_payload_t {
+	nx_uint16_t node_id;
 	nx_uint8_t info_type;
 	nx_uint16_t info_addr;
 } info_payload_t;

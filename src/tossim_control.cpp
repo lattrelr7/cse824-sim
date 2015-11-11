@@ -266,6 +266,7 @@ static void * SerialListenThread(void * args)
 			{
 				ext_message_payload_t * payload = (ext_message_payload_t *)(packet + sizeof(serial_header_t));
 				LogTcDbg("*********EXT MESSAGE*********\n");
+				LogTcDbg("Node ID: %d\n", ntohs(payload->node_id));
 				LogTcDbg("Info Type: %d\n", payload->info_type);
 				LogTcDbg("Info Addr: %d\n", ntohs(payload->info_addr));
 				LogTcDbg("********************************\n");
@@ -273,7 +274,8 @@ static void * SerialListenThread(void * args)
 			if(header->type == INFO_ONLY)
 			{
 				info_payload_t * payload = (info_payload_t *)(packet + sizeof(serial_header_t));
-				LogTcDbg("*********SINK INFO MSG*********\n");
+				LogTcDbg("*********INFO MSG***********\n");
+				LogTcDbg("Node ID: %d\n", ntohs(payload->node_id));
 				LogTcDbg("Info Type: %d\n", payload->info_type);
 				LogTcDbg("Info Addr: %d\n", ntohs(payload->info_addr));
 				LogTcDbg("********************************\n");

@@ -71,6 +71,7 @@ implementation
 	void update_neighbor(uint16_t node_id, uint8_t hops_to_sink);
 	void update_route(am_addr_t node_id, uint8_t hops_to_sink);
 	void check_for_lost_route(am_addr_t node_id);
+	void send_info_on_serial();
 	
 	void failBlink() {call Leds.led2Toggle();}
 	void dropBlink() {call Leds.led2Toggle();}
@@ -160,7 +161,6 @@ implementation
 	/* Timer1 periodic function - broadcast alive message*/
 	event void Timer1.fired() 
 	{
-		info_payload_t payload; //for sink only
 		alive_message_t alive_data;
 		alive_data.hops_to_sink = current_distance;
 		
@@ -169,21 +169,6 @@ implementation
 		//broadcast message
 		if(!(injected_fault & (FAIL_ALIVE | FAIL_BATTERY)))
 			radioAddBroadcast(ALIVE_TYPE, (void *)&alive_data, sizeof(alive_message_t));
-			
-		/* This is the sinks best opportunity to do this 
-		 * ! doesn't work well in large network -- too much traffic
-		 * going to the sink already.*/
-		if(TOS_NODE_ID == BASE_STATION_NODE_ID && infoIn != infoOut)
-		{
-			payload.info_type = info_queue[infoOut].info_type;
-			payload.info_addr = info_queue[infoOut].info_addr;
-			serialAdd(INFO_ONLY, (void *)&payload, sizeof(info_payload_t));
-			
-			if (++infoOut >= INFO_QUEUE_LEN)
-			{
-				infoOut = 0;
-			}
-		}
 	}
 	
 	/* Serial control functions */
@@ -522,6 +507,7 @@ implementation
 					infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
 					dbg("Alive", "Lost contact with %d!.\n", neighbors[i].node_id);
 					check_for_lost_route(neighbors[i].node_id);
+					send_info_on_serial();
 				}
 			}
 		}
@@ -548,6 +534,7 @@ implementation
 				
 				neighbors[i].count = ALIVE_RESET_COUNT;
 				update_route(node_id, hops_to_sink);
+				send_info_on_serial();
 				break;
 			}
 			
@@ -570,7 +557,7 @@ implementation
 					neighbors[i].valid = 1;
 					
 					update_route(node_id, hops_to_sink);
-					
+					send_info_on_serial();
 					break;
 				}
 			}			
@@ -616,10 +603,32 @@ implementation
 						current_distance = neighbors[i].hops_to_sink + 1;
 						
 						dbg("Route", "New route through %d.\n", neighbors[i].node_id);
+						break;
 					}
 				}
 			}
 		}
+	}
+	
+	/* Only works with the base station, send info updates
+	 * immediately after receving info.
+	 */
+	void send_info_on_serial()
+	{
+		info_payload_t payload;
+		
+		if(TOS_NODE_ID == BASE_STATION_NODE_ID && infoIn != infoOut)
+		{
+			payload.node_id = TOS_NODE_ID;
+			payload.info_type = info_queue[infoOut].info_type;
+			payload.info_addr = info_queue[infoOut].info_addr;
+			serialAdd(INFO_ONLY, (void *)&payload, sizeof(info_payload_t));
+			
+			if (++infoOut >= INFO_QUEUE_LEN)
+			{
+				infoOut = 0;
+			}
+		}	
 	}
 
 }

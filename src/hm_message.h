@@ -70,6 +70,7 @@ struct ext_message_payload_t {
 } __attribute__ ((packed));
 
 struct info_payload_t {
+	uint16_t node_id;
 	uint8_t info_type;
 	uint16_t info_addr;
 } __attribute__ ((packed));
