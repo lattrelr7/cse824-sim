@@ -42,6 +42,7 @@ int main()
 	FILE * topology_file = fopen("topo.txt", "r");
 	FILE * noise_file = fopen("noise.txt", "r");
 	FILE * sim_dbg_out = fopen("sim_dbg_out.txt", "w");
+	FILE * powertossimz = fopen("Energy.txt", "w");
 	FILE * tc_dbg_out = fopen("tc_dbg_out.txt", "w"); /*Wipe log file*/
 	fclose(tc_dbg_out);
 
@@ -80,6 +81,7 @@ int main()
 	//t->addChannel((char *)"Radio", sim_dbg_out);
 	t->addChannel((char *)"Alive", sim_dbg_out);
 	t->addChannel((char *)"Broadcast", sim_dbg_out);
+	t->addChannel((char *)"ENERGY_HANDLER", powertossimz);
 
 	/* Read noise */
 	std::cout << "Configuring noise..." << std::endl;
