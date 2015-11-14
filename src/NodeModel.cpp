@@ -35,6 +35,7 @@ NodeModel::NodeModel()
 	_sensor_value_count = 0;
 	_avg_voltage_diff = 0;
 	_voltage_value_count = 0;
+	_path_failed_id = 0;
 }
 
 NodeModel::NodeModel(unsigned int id)
@@ -66,6 +67,7 @@ NodeModel::NodeModel(unsigned int id)
 	_sensor_value_count = 0;
 	_avg_voltage_diff = 0;
 	_voltage_value_count = 0;
+	_path_failed_id = 0;
 }
 
 NodeModel::~NodeModel() {
@@ -77,13 +79,16 @@ void NodeModel::UpdateNodeState()
 	unsigned int start_state = _current_state;
 
 	/* Not receiving data after certain time out */
-	if(GetTime() -_last_msg_timestamp > MISSED_MESSAGE_TIME)
+	if(!_is_sink)
 	{
-		_current_state |= DATA_FAILURE;
-	}
-	else
-	{
-		CLEAR_FAULT(_current_state, DATA_FAILURE);
+		if(GetTime() -_last_msg_timestamp > MISSED_MESSAGE_TIME)
+		{
+			_current_state |= DATA_FAILURE;
+		}
+		else
+		{
+			CLEAR_FAULT(_current_state, DATA_FAILURE);
+		}
 	}
 
 	if(!IsBatteryHealthy())
@@ -95,10 +100,16 @@ void NodeModel::UpdateNodeState()
 		CLEAR_FAULT(_current_state, BATTERY_FAILURE);
 	}
 
-	/* Path broken due to parent node failure */
+	/* Path broken due to parent node failure or all children
+	 * being reported as failing */
 	if(IsRouteBroken())
 	{
 		_current_state |= PATH_FAILURE;
+	}
+	else if(AreChildrenBroken())
+	{
+		_current_state |= PATH_FAILURE;
+		_path_failed_id = _id;
 	}
 	else
 	{
@@ -199,6 +210,11 @@ std::string NodeModel::PrintNode()
 	if(_current_state & OUT_LINK_FAILURE) {failures.push_back("OUT_LINK_FAILURE");}
 	if(_current_state & BATTERY_FAILURE) {failures.push_back("BATTERY_FAILURE");}
 
+	if(_current_state == 0x000)
+	{
+		return "";
+	}
+
 	ss << PrintSummary();
 
 	ss << "Node Status:" << std::endl;
@@ -206,7 +222,27 @@ std::string NodeModel::PrintNode()
 	{
 		for(unsigned int i=0; i < failures.size(); i++)
 		{
-			ss << failures[i] << std::endl;
+			ss << failures[i];
+			if(failures[i] == "PATH_FAILURE") {ss << " AT " << _path_failed_id;}
+			if(failures[i] == "PATH_UPDATE") {ss << " TO " << _parent_id;}
+			if(failures[i] == "OUT_LINK_ERRORS_MINOR" || failures[i] == "OUT_LINK_ERRORS_MAJOR")
+			{
+				ss << "\n" << "\tCAN'T BE HEARD BY ";
+				for (std::list<NodeModel *>::iterator it=_n_heard_by.begin(); it!=_n_heard_by.end(); ++it)
+				{
+					ss << (*it)->_id << " ";
+				}
+			}
+			if(failures[i] == "IN_LINK_ERRORS_MINOR" || failures[i] == "IN_LINK_ERRORS_MAJOR")
+			{
+				ss << "\n" << "\tCAN'T HEAR ";
+				for (std::list<NodeModel *>::iterator it=_n_heard.begin(); it!=_n_heard.end(); ++it)
+				{
+					ss << (*it)->_id << " ";
+				}
+			}
+
+			ss<< std::endl;
 		}
 	}
 	else
@@ -271,7 +307,11 @@ void NodeModel::UpdateNeighborHeardBy(NodeModel * node, INFO_TYPES info_type)
 	else
 	{
 		_heard_by.remove(node);
-		_n_heard_by.push_back(node);
+
+		if(!IsNodeInList(node, _n_heard_by))
+		{
+			_n_heard_by.push_back(node);
+		}
 	}
 }
 
@@ -300,7 +340,11 @@ void NodeModel::UpdateNeighborHeard(NodeModel * node, INFO_TYPES info_type)
 	else
 	{
 		_heard.remove(node);
-		_n_heard.push_back(node);
+
+		if(!IsNodeInList(node, _n_heard))
+		{
+			_n_heard.push_back(node);
+		}
 	}
 }
 
@@ -345,6 +389,26 @@ bool NodeModel::IsNodeInList(NodeModel * node, std::list<NodeModel *> list)
 bool NodeModel::IsRouteBroken()
 {
 	bool route_broken = false;
+	std::vector<NodeModel*> node_hops;
+	NodeModel * next_hop = _parent;
+
+	while(next_hop != NULL)
+	{
+		node_hops.push_back(next_hop);
+		next_hop = next_hop->_parent;
+	}
+
+	/* Go backwards and find the failure closest to the root */
+	for(int i=node_hops.size()-1; i >= 0; i--)
+	{
+		if(node_hops[i]->_current_state & (IN_LINK_FAILURE|OUT_LINK_FAILURE|BATTERY_FAILURE|DATA_FAILURE|PATH_FAILURE))
+		{
+			route_broken = true;
+			_path_failed_id = node_hops[i]->_id;
+			break;
+		}
+	}
+
 	return route_broken;
 }
 
@@ -352,4 +416,52 @@ bool NodeModel::IsBatteryHealthy()
 {
 	bool battery_healthy = true;
 	return battery_healthy;
+}
+
+bool NodeModel::AreChildrenBroken()
+{
+	bool children_failed = false;
+
+	/* Only run this if there is more than 1 child, otherwise it is hard to tell
+	 * who is to  blame for the failure
+	 */
+	if(_children.size() > 1)
+	{
+		children_failed = true;
+		for (std::list<NodeModel *>::iterator it=_children.begin(); it!=_children.end(); ++it)
+		{
+			if((*it)->AreSelfAndChildrenBroken() == false)
+			{
+				children_failed = false;
+				break;
+			}
+		}
+	}
+
+	return children_failed;
+}
+
+bool NodeModel::AreSelfAndChildrenBroken()
+{
+	bool children_failed = false;
+
+	if(_children.size() != 0)
+	{
+		children_failed = true;
+		for (std::list<NodeModel *>::iterator it=_children.begin(); it!=_children.end(); ++it)
+		{
+			if((*it)->AreSelfAndChildrenBroken() == false)
+			{
+				children_failed = false;
+				break;
+			}
+		}
+	}
+
+	if(_current_state & (IN_LINK_FAILURE|OUT_LINK_FAILURE|BATTERY_FAILURE|DATA_FAILURE))
+	{
+		children_failed = true;
+	}
+
+	return children_failed;
 }

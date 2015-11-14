@@ -8,6 +8,7 @@ implementation
 	components LedsC;
 	components new TimerMilliC() as Timer0;
 	components new TimerMilliC() as Timer1;
+	components new TimerMilliC() as Timer2;
 	components SerialActiveMessageC as Serial;
 	components ActiveMessageC as Radio;
 	components hmC as App;
@@ -16,6 +17,7 @@ implementation
 	MainC.Boot <- App;
 	App.Timer0 -> Timer0;
 	App.Timer1 -> Timer1;
+	App.Timer2 -> Timer2;
 	App.Leds -> LedsC;
 	App.Random -> RandomC;
 	

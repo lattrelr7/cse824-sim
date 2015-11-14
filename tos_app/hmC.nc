@@ -11,6 +11,7 @@ module hmC @safe()
 		interface Leds;
 		interface Timer<TMilli> as Timer0;
 		interface Timer<TMilli> as Timer1;
+		interface Timer<TMilli> as Timer2;
 		interface Random;
 		
 		interface SplitControl as SerialControl;
@@ -107,6 +108,7 @@ implementation
 		}
 		
 		call Timer1.startPeriodic(ALIVE_PERIOD_MILLI);
+		call Timer2.startPeriodic(REPEAT_INFO_MILLI);
 		
 		dbg("Boot","Boot: Node %d radio started.\n", TOS_NODE_ID);
 
@@ -169,6 +171,30 @@ implementation
 		//broadcast message
 		if(!(injected_fault & (FAIL_ALIVE | FAIL_BATTERY)))
 			radioAddBroadcast(ALIVE_TYPE, (void *)&alive_data, sizeof(alive_message_t));
+	}
+	
+	/* Timer2 periodic function - add neighbors to queue. There is no guarentee
+	 * that the base station received it on the first try */
+	event void Timer2.fired() 
+	{
+		uint8_t i;
+		dbg("Alive", "Re-queueing neighbor info.\n");
+		for(i=0; i < MAX_NEIGHBORS; i++)
+		{
+			if(neighbors[i].valid)
+			{
+				if(neighbors[i].count)
+				{
+					info_queue[infoIn].info_type = FOUND_NODE;
+				}
+				else
+				{
+					info_queue[infoIn].info_type = LOST_NODE;
+				}	
+				info_queue[infoIn].info_addr = neighbors[i].node_id;
+				infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
+			}
+		}
 	}
 	
 	/* Serial control functions */
@@ -474,6 +500,9 @@ implementation
 	
 	void serialAdd(uint8_t type, void * payload, uint8_t payload_size)
 	{
+		if(injected_fault & (FAIL_DATA | FAIL_BATTERY))
+			return;
+			
 		/* Send message over serial */
 		call UartAMPacket.setType(&uartQueueBufs[uartIn], type);
 		call UartAMPacket.setDestination(&uartQueueBufs[uartIn], 0x00);
@@ -595,7 +624,7 @@ implementation
 			
 			for(i=0; i < MAX_NEIGHBORS; i++)
 			{
-				if(neighbors[i].node_id && neighbors[i].count != 0)
+				if(neighbors[i].valid && neighbors[i].count != 0)
 				{
 					if(neighbors[i].hops_to_sink <= current_distance)
 					{

@@ -47,6 +47,8 @@ public:
 private:
 	void UpdateDb();
 	bool IsRouteBroken();
+	bool AreChildrenBroken();
+	bool AreSelfAndChildrenBroken();
 	bool IsBatteryHealthy();
 	unsigned long long int GetTime();
 	bool IsNodeInList(NodeModel * node, std::list<NodeModel *> list);
@@ -61,6 +63,7 @@ private:
 	bool _is_sink;
 	unsigned int _id;
 	unsigned int _parent_id;
+	unsigned int _path_failed_id;
 	unsigned int _msgs_rxed;
 	unsigned int _max_heard;
 	unsigned int _max_heard_by;
