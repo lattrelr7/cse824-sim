@@ -5,6 +5,11 @@
  *      Author: ryan
  */
 
+#ifndef CSE824_SRC_HMMESSAGE_H_
+#define CSE824_SRC_HMMESSAGE_H_
+
+#define BASE_STATION_ID 0
+
 enum MESSAGE_TYPES
 {
 	SENSOR_TYPE = 0, /* Periodic message from sensor */
@@ -79,3 +84,5 @@ struct network_command_t {
 	uint8_t cmd_id;
 	uint8_t cmd_num;
 } __attribute__ ((packed));
+
+#endif /* CSE824_SRC_HMMESSAGE_H_ */

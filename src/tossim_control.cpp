@@ -14,21 +14,27 @@
 #include <sqlite3.h>
 #include <iostream>
 #include <string>
+#include <map>
 #include "hm_message.h"
 #include "synchronized_queue.h"
+#include "NodeModel.h"
 
 static void hexprint(uint8_t *packet, int len);
 static void * InputHandlerThread(void * args);
 static void * SerialListenThread(void * args);
 static void * SQLHandlerThread(void * args);
+static void * UpdateAndLogNodeModel(void * args);
 static void InjectFault(Tossim * t, int node_addr, uint8_t fault);
 static void SendNetworkCommand(Tossim * t, NETWORK_COMMAND_TYPES net_cmd_type);
-static void LogTcDbg( const char * format, ... );
+static void LogTcMsg( const char * format, ... );
 static void PrintOptions();
+static void UpdateFaultModel(uint8_t * packet);
 
 static int network_command_id = 1;
 static SynchronizedQueue<message_payload_t> my_queue;
 static sqlite3 *db;
+static std::map<unsigned int, NodeModel> node_models;
+
 int main()
 {
 	unsigned int number_of_nodes = 1;
@@ -44,7 +50,9 @@ int main()
 	FILE * sim_dbg_out = fopen("sim_dbg_out.txt", "w");
 	FILE * powertossimz = fopen("Energy.txt", "w");
 	FILE * tc_dbg_out = fopen("tc_dbg_out.txt", "w"); /*Wipe log file*/
+	FILE * tc_model_out = fopen("tc_model_out.txt", "w"); /*Wipe log file*/
 	fclose(tc_dbg_out);
+	fclose(tc_model_out);
 
 	
 	int rc = sqlite3_open("824Sim.db", &db);
@@ -104,11 +112,12 @@ int main()
 	}
 	std::cout << std::endl;
 
-	pthread_t input_thread, serial_rx_thread, sql_handle_thread;
+	pthread_t input_thread, serial_rx_thread, sql_handle_thread, model_thread;
 
 	pthread_create(&input_thread, NULL, InputHandlerThread, t);
 	pthread_create(&serial_rx_thread, NULL, SerialListenThread, NULL);
 	pthread_create(&sql_handle_thread, NULL, SQLHandlerThread, NULL);
+	pthread_create(&model_thread, NULL, UpdateAndLogNodeModel, NULL);
 	
 
 	std::cout << "Starting event loop..." << std::endl;
@@ -214,13 +223,13 @@ static void hexprint(uint8_t *packet, int len)
 {
 	for (int i = 0; i < len; i++)
 	{
-		LogTcDbg("%02x ", packet[i]);
+		LogTcMsg("%02x ", packet[i]);
 		if(i != 0 && ((i+1) % 4) == 0)
 		{
-			LogTcDbg("\n");
+			LogTcMsg("\n");
 		}
 	}
-	LogTcDbg("\n");
+	LogTcMsg("\n");
 }
 
 static void * SerialListenThread(void * args)
@@ -228,7 +237,7 @@ static void * SerialListenThread(void * args)
 	int fd = sim_sf_open_source("127.0.0.1", 9001);
 	if (fd < 0)
 	{
-		LogTcDbg("Couldn't open serial forwarder\n");
+		LogTcMsg("Couldn't open serial forwarder\n");
 		exit(1);
 	}
 
@@ -238,49 +247,51 @@ static void * SerialListenThread(void * args)
 		uint8_t * packet = (uint8_t *)sim_sf_read_packet(fd, &len);
 		if(!packet)
 		{
-			LogTcDbg("Failed to rx packet\n");
+			LogTcMsg("Failed to rx packet\n");
 		}
 		else
 		{
+			UpdateFaultModel(packet);
+
 			serial_header_t * header = (serial_header_t *)packet;
 
 			if(header->type == SENSOR_TYPE || header->type == EXT_TYPE)
 			{
 				message_payload_t * payload = (message_payload_t *)(packet + sizeof(serial_header_t));
 				//hexprint((uint8_t*)packet, len);
-				LogTcDbg("*********NEW BASE MESSAGE*********\n");
-				/*LogTcDbg("---------HEADER-----------------\n");
-				LogTcDbg("Source Addr: %d\n", header->src);
-				LogTcDbg("Dest Addr: %d\n", header->dest);
-				LogTcDbg("Group: %d\n", header->group);
-				LogTcDbg("Type: %d\n", header->type);
-				LogTcDbg("Payload Length: %d\n", header->length);*/
-				LogTcDbg("---------PAYLOAD----------------\n");
-				LogTcDbg("Node ID: %d\n", ntohs(payload->node_id));
-				LogTcDbg("Next hop: %d\n", ntohs(payload->next_hop));
-				LogTcDbg("Sensor Data: %d\n", ntohs(payload->sensor_data));
-				LogTcDbg("Voltage: %d\n", ntohs(payload->voltage));
-				LogTcDbg("********************************\n");
+				LogTcMsg("*********NEW BASE MESSAGE*********\n");
+				/*LogTcMsg("---------HEADER-----------------\n");
+				LogTcMsg("Source Addr: %d\n", header->src);
+				LogTcMsg("Dest Addr: %d\n", header->dest);
+				LogTcMsg("Group: %d\n", header->group);
+				LogTcMsg("Type: %d\n", header->type);
+				LogTcMsg("Payload Length: %d\n", header->length);*/
+				LogTcMsg("---------PAYLOAD----------------\n");
+				LogTcMsg("Node ID: %d\n", ntohs(payload->node_id));
+				LogTcMsg("Next hop: %d\n", ntohs(payload->next_hop));
+				LogTcMsg("Sensor Data: %d\n", ntohs(payload->sensor_data));
+				LogTcMsg("Voltage: %d\n", ntohs(payload->voltage));
+				LogTcMsg("********************************\n");
 
 				my_queue.Enqueue(*payload);
 			}
 			if(header->type == EXT_TYPE)
 			{
 				ext_message_payload_t * payload = (ext_message_payload_t *)(packet + sizeof(serial_header_t));
-				LogTcDbg("*********EXT MESSAGE*********\n");
-				LogTcDbg("Node ID: %d\n", ntohs(payload->node_id));
-				LogTcDbg("Info Type: %d\n", payload->info_type);
-				LogTcDbg("Info Addr: %d\n", ntohs(payload->info_addr));
-				LogTcDbg("********************************\n");
+				LogTcMsg("*********EXT MESSAGE*********\n");
+				LogTcMsg("Node ID: %d\n", ntohs(payload->node_id));
+				LogTcMsg("Info Type: %d\n", payload->info_type);
+				LogTcMsg("Info Addr: %d\n", ntohs(payload->info_addr));
+				LogTcMsg("********************************\n");
 			}
 			if(header->type == INFO_ONLY)
 			{
 				info_payload_t * payload = (info_payload_t *)(packet + sizeof(serial_header_t));
-				LogTcDbg("*********INFO MSG***********\n");
-				LogTcDbg("Node ID: %d\n", ntohs(payload->node_id));
-				LogTcDbg("Info Type: %d\n", payload->info_type);
-				LogTcDbg("Info Addr: %d\n", ntohs(payload->info_addr));
-				LogTcDbg("********************************\n");
+				LogTcMsg("*********INFO MSG***********\n");
+				LogTcMsg("Node ID: %d\n", ntohs(payload->node_id));
+				LogTcMsg("Info Type: %d\n", payload->info_type);
+				LogTcMsg("Info Addr: %d\n", ntohs(payload->info_addr));
+				LogTcMsg("********************************\n");
 			}
 		}
 		free((void *)packet);
@@ -289,7 +300,7 @@ static void * SerialListenThread(void * args)
 	return NULL;
 }
 
-static void LogTcDbg( const char * format, ... )
+static void LogTcMsg( const char * format, ... )
 {
 	FILE * tc_dbg_out = fopen("tc_dbg_out.txt", "a");
     va_list argptr;
@@ -298,6 +309,7 @@ static void LogTcDbg( const char * format, ... )
     va_end(argptr);
     fclose(tc_dbg_out);
 }
+
 
 static void * SQLHandlerThread(void * args)
 {
@@ -321,4 +333,77 @@ static void * SQLHandlerThread(void * args)
 	
 	sqlite3_close(db);
 	return NULL;
+}
+
+static void * UpdateAndLogNodeModel(void * args)
+{
+	while(1)
+	{
+		FILE * tc_model_out = fopen("tc_model_out.txt", "w");
+		std::map<unsigned int, NodeModel>::iterator it;
+		for (it = node_models.begin(); it != node_models.end(); it++)
+		{
+			it->second.UpdateNodeState();
+			fprintf(tc_model_out, "%s", it->second.PrintNode().c_str());
+		}
+		fclose(tc_model_out);
+		sleep(2);
+	}
+
+    return NULL;
+}
+
+static void UpdateFaultModel(uint8_t * packet)
+{
+	serial_header_t * header = (serial_header_t *)packet;
+
+	if(header->type == SENSOR_TYPE || header->type == EXT_TYPE)
+	{
+		message_payload_t * payload = (message_payload_t *)(packet + sizeof(serial_header_t));
+
+		//Create node models if they don't exist yet
+		if(!node_models.count(ntohs(payload->next_hop)))
+		{
+			node_models[ntohs(payload->next_hop)] = NodeModel(ntohs(payload->next_hop));
+		}
+		if(!node_models.count(ntohs(payload->node_id)))
+		{
+			node_models[ntohs(payload->node_id)] = NodeModel(ntohs(payload->node_id));
+		}
+
+		NodeModel * current_node = &node_models[ntohs(payload->node_id)];
+		current_node->UpdateParent(&node_models[ntohs(payload->next_hop)]);
+		current_node->UpdateBatteryData(ntohs(payload->voltage));
+		current_node->UpdateSensorData(ntohs(payload->sensor_data));
+	}
+
+	if(header->type == EXT_TYPE)
+	{
+		ext_message_payload_t * payload = (ext_message_payload_t *)(packet + sizeof(serial_header_t));
+
+		//Create node models if they don't exist yet
+		if(!node_models.count(ntohs(payload->info_addr)))
+		{
+			node_models[ntohs(payload->info_addr)] = NodeModel(ntohs(payload->info_addr));
+		}
+
+		NodeModel  * current_node = &node_models[ntohs(payload->node_id)];
+		current_node->UpdateNeighborHeard(&node_models[ntohs(payload->info_addr)], (INFO_TYPES)payload->info_type);
+		(&node_models[ntohs(payload->info_addr)])->UpdateNeighborHeardBy(current_node, (INFO_TYPES)payload->info_type);
+	}
+
+	if(header->type == INFO_ONLY)
+	{
+		info_payload_t * payload = (info_payload_t *)(packet + sizeof(serial_header_t));
+
+		//Create node models if they don't exist yet
+		if(!node_models.count(ntohs(payload->info_addr)))
+		{
+			node_models[ntohs(payload->info_addr)] = NodeModel(ntohs(payload->info_addr));
+		}
+
+		NodeModel  * current_node = &node_models[ntohs(payload->node_id)];
+		current_node->UpdateNeighborHeard(&node_models[ntohs(payload->info_addr)], (INFO_TYPES)payload->info_type);
+		(&node_models[ntohs(payload->info_addr)])->UpdateNeighborHeardBy(current_node, (INFO_TYPES)payload->info_type);
+	}
 }
