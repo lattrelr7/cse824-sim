@@ -2,8 +2,8 @@
 #define HMAPP_H
 
 #define SENSE_PERIOD_MILLI 10000
-#define ALIVE_PERIOD_MILLI 30000
-#define REPEAT_INFO_MILLI 60000
+#define ALIVE_PERIOD_MILLI (3 * SENSE_PERIOD_MILLI) //30000
+#define REPEAT_INFO_MILLI (12 * ALIVE_PERIOD_MILLI) //240000
 #define MAX_NEIGHBORS 25
 #define UART_QUEUE_LEN 12
 #define RADIO_QUEUE_LEN 12
@@ -37,8 +37,10 @@ enum NETWORK_COMMAND_TYPES
 
 enum INFO_TYPES
 {
-	FOUND_NODE,
-	LOST_NODE,
+	FOUND_NODE = 0,
+	LOST_NODE = 1,
+	PARENT_NODE = 2,
+	VOLTAGE_DATA = 3,
 };
 
 typedef nx_struct neighbor_t {
@@ -48,10 +50,10 @@ typedef nx_struct neighbor_t {
 	nx_uint8_t valid;
 } neighbor_t;
 
-typedef nx_struct neighbor_info_t {
+typedef nx_struct info_t {
 	nx_uint8_t info_type;
-	nx_uint16_t info_addr;
-} neighbor_info_t;
+	nx_uint16_t info_value;
+} info_t;
 
 /* Alive message */
 typedef nx_struct alive_message_t {
@@ -78,8 +80,6 @@ typedef nx_struct network_route_t {
 typedef nx_struct message_payload_t {
 	nx_uint8_t ttl;
 	nx_uint16_t node_id;
-	nx_uint16_t next_hop;
-	nx_uint16_t voltage;
 	nx_uint16_t sensor_data;
 } message_payload_t;
 
@@ -87,17 +87,15 @@ typedef nx_struct message_payload_t {
 typedef nx_struct ext_message_payload_t {
 	nx_uint8_t ttl;
 	nx_uint16_t node_id;
-	nx_uint16_t next_hop;
-	nx_uint16_t voltage;
 	nx_uint16_t sensor_data;
 	nx_uint8_t info_type;
-	nx_uint16_t info_addr;
+	nx_uint16_t info_value;
 } ext_message_payload_t;
 
 typedef nx_struct info_payload_t {
 	nx_uint16_t node_id;
 	nx_uint8_t info_type;
-	nx_uint16_t info_addr;
+	nx_uint16_t info_value;
 } info_payload_t;
 
 #endif

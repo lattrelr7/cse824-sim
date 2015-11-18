@@ -354,11 +354,12 @@ void NodeModel::UpdateParent(NodeModel * node)
 	{
 		if(_parent != NULL)
 		{
-			_current_state |= PATH_UPDATE;
-			_last_route_update_timestamp = GetTime();
+
 			_parent->_children.remove(this);
 		}
 
+		_current_state |= PATH_UPDATE;
+		_last_route_update_timestamp = GetTime();
 		_parent = node;
 		_parent_id = node->_id;
 		_parent->_children.push_back(this);
@@ -464,4 +465,20 @@ bool NodeModel::AreSelfAndChildrenBroken()
 	}
 
 	return children_failed;
+}
+
+/* Write out tree from this node */
+std::string NodeModel::PrintTopology(int level)
+{
+	std::ostringstream ss;
+
+	for(int i=0; i < level; i++) { ss << "\t"; }
+	ss << "NODE-" << _id << std::endl;
+
+	for (std::list<NodeModel *>::iterator it=_children.begin(); it!=_children.end(); ++it)
+	{
+		ss << (*it)->PrintTopology(level + 1);
+	}
+
+	return ss.str();
 }

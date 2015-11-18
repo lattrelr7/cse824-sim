@@ -43,6 +43,7 @@ public:
 	void UpdateParent(NodeModel * node);
 	std::string PrintNode();
 	std::string PrintSummary();
+	std::string PrintTopology(int level);
 
 private:
 	void UpdateDb();

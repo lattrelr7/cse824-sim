@@ -36,25 +36,25 @@ module hmC @safe()
 implementation 
 {
 	/* Member vars */
-	message_t  uartQueueBufs[UART_QUEUE_LEN];
-	uint8_t    uartIn;
-	uint8_t    uartOut;
-	bool       uartBusy;
-	bool	   uartFull;
+	message_t   uartQueueBufs[UART_QUEUE_LEN];
+	uint8_t     uartIn;
+	uint8_t     uartOut;
+	bool        uartBusy;
+	bool	    uartFull;
 	
-	message_t  radioQueueBufs[RADIO_QUEUE_LEN];
-	uint8_t    radioIn;
-	uint8_t	   radioOut;
-	bool       radioBusy;
-	bool	   radioFull;
+	message_t   radioQueueBufs[RADIO_QUEUE_LEN];
+	uint8_t     radioIn;
+	uint8_t	    radioOut;
+	bool        radioBusy;
+	bool	    radioFull;
 	
-	am_addr_t  radio_dest; /* Where to send all radio messages */
-	uint8_t	   last_cmd_id; /* Track what the last route message used was */
-	uint16_t   current_distance; /* How many hops to sink */
-	uint8_t    injected_fault; /* Fault injection for simulation only */
+	am_addr_t   radio_dest; /* Where to send all radio messages */
+	uint8_t	    last_cmd_id; /* Track what the last route message used was */
+	uint16_t    current_distance; /* How many hops to sink */
+	uint8_t     injected_fault; /* Fault injection for simulation only */
 	
-	neighbor_t neighbors[MAX_NEIGHBORS];
-	neighbor_info_t info_queue[INFO_QUEUE_LEN];
+	neighbor_t  neighbors[MAX_NEIGHBORS];
+	info_t 		info_queue[INFO_QUEUE_LEN];
 	uint8_t		infoIn;
 	uint8_t		infoOut;
 	
@@ -138,10 +138,9 @@ implementation
 			ext_message_payload_t payload;
 			payload.ttl = current_distance;
 			payload.node_id = TOS_NODE_ID;
-			payload.next_hop = radio_dest;
 			payload.sensor_data = sensor_data;
 			payload.info_type = info_queue[infoOut].info_type;
-			payload.info_addr = info_queue[infoOut].info_addr;
+			payload.info_value = info_queue[infoOut].info_value;
 			radioAddUnicast(radio_dest, EXT_TYPE, (void *)&payload, sizeof(ext_message_payload_t));
 			
 			if (++infoOut >= INFO_QUEUE_LEN)
@@ -154,7 +153,6 @@ implementation
 			message_payload_t payload;
 			payload.ttl = current_distance;
 			payload.node_id = TOS_NODE_ID;
-			payload.next_hop = radio_dest;
 			payload.sensor_data = sensor_data;
 			radioAddUnicast(radio_dest, SENSOR_TYPE, (void *)&payload, sizeof(message_payload_t));
 		}
@@ -174,25 +172,70 @@ implementation
 	}
 	
 	/* Timer2 periodic function - add neighbors to queue. There is no guarentee
-	 * that the base station received it on the first try */
+	 * that the base station received it on the first try.  Also send out parent
+	 * and voltage infos at this point */
 	event void Timer2.fired() 
 	{
 		uint8_t i;
-		dbg("Alive", "Re-queueing neighbor info.\n");
+		uint16_t voltage;
+		uint8_t cur_queue_size = 0;
+		uint8_t queue_add_size = 0;
+		
+		//Find number of messages to queue
+		queue_add_size++; //Parent
+		queue_add_size++; //Voltage
 		for(i=0; i < MAX_NEIGHBORS; i++)
 		{
 			if(neighbors[i].valid)
 			{
-				if(neighbors[i].count)
-				{
-					info_queue[infoIn].info_type = FOUND_NODE;
-				}
-				else
-				{
-					info_queue[infoIn].info_type = LOST_NODE;
-				}	
-				info_queue[infoIn].info_addr = neighbors[i].node_id;
+				queue_add_size++;
+			}
+		}
+
+		//Get current queue size
+		if(infoOut > infoIn)
+		{
+			cur_queue_size = (INFO_QUEUE_LEN - infoOut) + infoIn;	
+		}
+		else
+		{
+			cur_queue_size = infoIn - infoOut;
+		}
+		
+		if(queue_add_size > (INFO_QUEUE_LEN - cur_queue_size) || (cur_queue_size > INFO_QUEUE_LEN/4))
+		{
+			dbg("Alive", "Not re-queueing info messages. Current length is %d.\n", cur_queue_size);
+		}
+		else
+		{
+			dbg("Alive", "Re-queueing %d info messages.\n", queue_add_size);
+			if(TOS_NODE_ID != BASE_STATION_NODE_ID)
+			{
+				info_queue[infoIn].info_type = PARENT_NODE;
+				info_queue[infoIn].info_value = radio_dest;
 				infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
+			}
+			
+			voltage = call Random.rand16();
+			info_queue[infoIn].info_type = VOLTAGE_DATA;
+			info_queue[infoIn].info_value = voltage;
+			infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
+			
+			for(i=0; i < MAX_NEIGHBORS; i++)
+			{
+				if(neighbors[i].valid)
+				{
+					if(neighbors[i].count)
+					{
+						info_queue[infoIn].info_type = FOUND_NODE;
+					}
+					else
+					{
+						info_queue[infoIn].info_type = LOST_NODE;
+					}	
+					info_queue[infoIn].info_value = neighbors[i].node_id;
+					infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
+				}
 			}
 		}
 	}
@@ -532,7 +575,7 @@ implementation
 				if(neighbors[i].count == 0)
 				{
 					info_queue[infoIn].info_type = LOST_NODE;
-					info_queue[infoIn].info_addr = neighbors[i].node_id;
+					info_queue[infoIn].info_value = neighbors[i].node_id;
 					infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
 					dbg("Alive", "Lost contact with %d!.\n", neighbors[i].node_id);
 					check_for_lost_route(neighbors[i].node_id);
@@ -556,7 +599,7 @@ implementation
 				if(neighbors[i].count == 0)
 				{
 					info_queue[infoIn].info_type = FOUND_NODE;
-					info_queue[infoIn].info_addr = neighbors[i].node_id;
+					info_queue[infoIn].info_value = neighbors[i].node_id;
 					infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
 					dbg("Alive", "Rediscovered %d!.\n", neighbors[i].node_id);
 				}
@@ -576,7 +619,7 @@ implementation
 				if(!neighbors[i].valid)
 				{
 					info_queue[infoIn].info_type = FOUND_NODE;
-					info_queue[infoIn].info_addr = node_id;
+					info_queue[infoIn].info_value = node_id;
 					infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
 					dbg("Alive", "Discovered %d.\n", node_id);
 					
@@ -600,9 +643,14 @@ implementation
 	{
 		if(hops_to_sink < (current_distance - 1))
 		{
-			dbg("Route", "Found a better route through %d with distance %d\n", node_id, hops_to_sink);
 			radio_dest = node_id;
 			current_distance = hops_to_sink + 1;
+			
+			info_queue[infoIn].info_type = PARENT_NODE;
+			info_queue[infoIn].info_value = radio_dest;
+			infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
+			
+			dbg("Route", "Found a better route through %d with distance %d\n", node_id, hops_to_sink);
 		}
 	}
 	
@@ -631,6 +679,10 @@ implementation
 						radio_dest = neighbors[i].node_id;
 						current_distance = neighbors[i].hops_to_sink + 1;
 						
+						info_queue[infoIn].info_type = PARENT_NODE;
+						info_queue[infoIn].info_value = radio_dest;
+						infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
+						
 						dbg("Route", "New route through %d.\n", neighbors[i].node_id);
 						break;
 					}
@@ -650,7 +702,7 @@ implementation
 		{
 			payload.node_id = TOS_NODE_ID;
 			payload.info_type = info_queue[infoOut].info_type;
-			payload.info_addr = info_queue[infoOut].info_addr;
+			payload.info_value = info_queue[infoOut].info_value;
 			serialAdd(INFO_ONLY, (void *)&payload, sizeof(info_payload_t));
 			
 			if (++infoOut >= INFO_QUEUE_LEN)

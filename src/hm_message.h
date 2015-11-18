@@ -35,8 +35,10 @@ enum NETWORK_COMMAND_TYPES
 
 enum INFO_TYPES
 {
-	FOUND_NODE,
-	LOST_NODE,
+	FOUND_NODE = 0,
+	LOST_NODE = 1,
+	PARENT_NODE = 2,
+	VOLTAGE_DATA = 3,
 };
 
 /*
@@ -59,25 +61,21 @@ struct serial_header_t {
 struct message_payload_t {
 	uint8_t ttl;
 	uint16_t node_id;
-	uint16_t next_hop;
-	uint16_t voltage;
 	uint16_t sensor_data;
 } __attribute__ ((packed));
 
 struct ext_message_payload_t {
 	uint8_t ttl;
 	uint16_t node_id;
-	uint16_t next_hop;
-	uint16_t voltage;
 	uint16_t sensor_data;
 	uint8_t info_type;
-	uint16_t info_addr;
+	uint16_t info_value;
 } __attribute__ ((packed));
 
 struct info_payload_t {
 	uint16_t node_id;
 	uint8_t info_type;
-	uint16_t info_addr;
+	uint16_t info_value;
 } __attribute__ ((packed));
 
 struct network_command_t {

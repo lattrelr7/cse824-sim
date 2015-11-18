@@ -11,6 +11,7 @@
 #include <sf/SerialForwarder.h>
 #include <sf/Throttle.h>
 #include <sf/sim_serial_forwarder.h>
+#include <time.h>
 #include <sqlite3.h>
 #include <iostream>
 #include <string>
@@ -29,11 +30,17 @@ static void SendNetworkCommand(Tossim * t, NETWORK_COMMAND_TYPES net_cmd_type);
 static void LogTcMsg( const char * format, ... );
 static void PrintOptions();
 static void UpdateFaultModel(uint8_t * packet);
+static void ProcessInfo(NodeModel * node, INFO_TYPES info_type, uint16_t info_value);
+static NodeModel * GetModel(unsigned int node_id);
+static unsigned long long int GetTime();
 
 static int network_command_id = 1;
 static SynchronizedQueue<message_payload_t> my_queue;
 static sqlite3 *db;
 static std::map<unsigned int, NodeModel> node_models;
+static long long unsigned int data_rxed = 0;
+static long long unsigned int hm_rxed = 0;
+static long long unsigned int start_time = 0;
 
 int main()
 {
@@ -122,6 +129,8 @@ int main()
 
 	std::cout << "Starting event loop..." << std::endl;
 
+	start_time = GetTime();
+
 	sf.process();
 	throttle.initialize();
 	while(1)
@@ -200,6 +209,19 @@ static void * InputHandlerThread(void * args)
 				InjectFault(t, i_arg1, 0x08);
 			}
 		}
+		else if(strncmp(input_command, "print", strlen("print")) == 0)
+		{
+			std::cout << "*****NETWORK TOPOLOGY******" << std::endl;
+			std::cout << GetModel(0)->PrintTopology(0) << std::endl;
+		}
+		else if(strncmp(input_command, "data", strlen("data")) == 0)
+		{
+			std::cout << "*****DATA METRICS******" << std::endl;
+			std::cout << "Uptime (seconds): " << GetTime() - start_time << std::endl;
+			std::cout << "Total radio data rxed (bytes): " << data_rxed << std::endl;
+			std::cout << "HM only data rxed (bytes): " << hm_rxed << std::endl;
+			std::cout << "\% HM data: " << ((float)hm_rxed/(float)data_rxed) * 100 << std::endl;
+		}
 		else
 		{
 			std::cout << "Unknown command: " << input_command << std::endl;
@@ -215,7 +237,9 @@ static void PrintOptions()
 	std::cout << "---------------------------------------------" << std::endl;
 	std::cout << "Options:" << std::endl;
 	std::cout << "\tnetwork update\t\tSend a routing update request" << std::endl;
-	std::cout << "\tfault [node] [CLEAR|ALIVE|DATA|BATTERY]\tInject a fault into the simulation" << std::endl;
+	std::cout << "\tprint\t\t\tPrint out topology starting at sink" << std::endl;
+	std::cout << "\tdata\t\t\tData metrics" << std::endl;
+	std::cout << "\tfault [node] [CLEAR|ALIVE|DATA|BATTERY]\tInject a fault" << std::endl;
 	std::cout << std::endl;
 }
 
@@ -268,10 +292,10 @@ static void * SerialListenThread(void * args)
 				LogTcMsg("Payload Length: %d\n", header->length);*/
 				LogTcMsg("---------PAYLOAD----------------\n");
 				LogTcMsg("Node ID: %d\n", ntohs(payload->node_id));
-				LogTcMsg("Next hop: %d\n", ntohs(payload->next_hop));
 				LogTcMsg("Sensor Data: %d\n", ntohs(payload->sensor_data));
-				LogTcMsg("Voltage: %d\n", ntohs(payload->voltage));
 				LogTcMsg("********************************\n");
+
+				data_rxed += 5; //(TTL + node id + sensor data)
 
 				my_queue.Enqueue(*payload);
 			}
@@ -281,8 +305,11 @@ static void * SerialListenThread(void * args)
 				LogTcMsg("*********EXT MESSAGE*********\n");
 				LogTcMsg("Node ID: %d\n", ntohs(payload->node_id));
 				LogTcMsg("Info Type: %d\n", payload->info_type);
-				LogTcMsg("Info Addr: %d\n", ntohs(payload->info_addr));
+				LogTcMsg("Info Value: %d\n", ntohs(payload->info_value));
 				LogTcMsg("********************************\n");
+
+				data_rxed += 3;
+				hm_rxed += 3; //(TTL + node id + sensor data)
 			}
 			if(header->type == INFO_ONLY)
 			{
@@ -290,7 +317,7 @@ static void * SerialListenThread(void * args)
 				LogTcMsg("*********INFO MSG***********\n");
 				LogTcMsg("Node ID: %d\n", ntohs(payload->node_id));
 				LogTcMsg("Info Type: %d\n", payload->info_type);
-				LogTcMsg("Info Addr: %d\n", ntohs(payload->info_addr));
+				LogTcMsg("Info Value: %d\n", ntohs(payload->info_value));
 				LogTcMsg("********************************\n");
 			}
 		}
@@ -320,7 +347,7 @@ static void * SQLHandlerThread(void * args)
 	while(1){
 		message_payload_t payload = my_queue.Dequeue();
 		char query[128];
-		sprintf(query, insertTemplate, ntohs(payload.node_id), ntohs(payload.sensor_data), ntohs(payload.voltage), 0, 0);
+		sprintf(query, insertTemplate, ntohs(payload.node_id), ntohs(payload.sensor_data), 0, 0, 0);
 		rc = sqlite3_exec(db, query, 0, 0, &err_msg);
 		
 		if (rc != SQLITE_OK ) {
@@ -360,50 +387,58 @@ static void UpdateFaultModel(uint8_t * packet)
 	if(header->type == SENSOR_TYPE || header->type == EXT_TYPE)
 	{
 		message_payload_t * payload = (message_payload_t *)(packet + sizeof(serial_header_t));
-
-		//Create node models if they don't exist yet
-		if(!node_models.count(ntohs(payload->next_hop)))
-		{
-			node_models[ntohs(payload->next_hop)] = NodeModel(ntohs(payload->next_hop));
-		}
-		if(!node_models.count(ntohs(payload->node_id)))
-		{
-			node_models[ntohs(payload->node_id)] = NodeModel(ntohs(payload->node_id));
-		}
-
-		NodeModel * current_node = &node_models[ntohs(payload->node_id)];
-		current_node->UpdateParent(&node_models[ntohs(payload->next_hop)]);
-		current_node->UpdateBatteryData(ntohs(payload->voltage));
+		NodeModel * current_node = GetModel(ntohs(payload->node_id));
 		current_node->UpdateSensorData(ntohs(payload->sensor_data));
 	}
 
 	if(header->type == EXT_TYPE)
 	{
 		ext_message_payload_t * payload = (ext_message_payload_t *)(packet + sizeof(serial_header_t));
-
-		//Create node models if they don't exist yet
-		if(!node_models.count(ntohs(payload->info_addr)))
-		{
-			node_models[ntohs(payload->info_addr)] = NodeModel(ntohs(payload->info_addr));
-		}
-
-		NodeModel  * current_node = &node_models[ntohs(payload->node_id)];
-		current_node->UpdateNeighborHeard(&node_models[ntohs(payload->info_addr)], (INFO_TYPES)payload->info_type);
-		(&node_models[ntohs(payload->info_addr)])->UpdateNeighborHeardBy(current_node, (INFO_TYPES)payload->info_type);
+		NodeModel  * current_node = GetModel(ntohs(payload->node_id));
+		ProcessInfo(current_node, (INFO_TYPES)payload->info_type, ntohs(payload->info_value));
 	}
 
 	if(header->type == INFO_ONLY)
 	{
 		info_payload_t * payload = (info_payload_t *)(packet + sizeof(serial_header_t));
-
-		//Create node models if they don't exist yet
-		if(!node_models.count(ntohs(payload->info_addr)))
-		{
-			node_models[ntohs(payload->info_addr)] = NodeModel(ntohs(payload->info_addr));
-		}
-
-		NodeModel  * current_node = &node_models[ntohs(payload->node_id)];
-		current_node->UpdateNeighborHeard(&node_models[ntohs(payload->info_addr)], (INFO_TYPES)payload->info_type);
-		(&node_models[ntohs(payload->info_addr)])->UpdateNeighborHeardBy(current_node, (INFO_TYPES)payload->info_type);
+		NodeModel  * current_node = GetModel(ntohs(payload->node_id));
+		ProcessInfo(current_node, (INFO_TYPES)payload->info_type, ntohs(payload->info_value));
 	}
+}
+
+static void ProcessInfo(NodeModel * current_node, INFO_TYPES info_type, uint16_t info_value)
+{
+	if(info_type == FOUND_NODE || info_type == LOST_NODE)
+	{
+		NodeModel * neighbor_node = GetModel(info_value);
+		current_node->UpdateNeighborHeard(neighbor_node, info_type);
+		neighbor_node->UpdateNeighborHeardBy(current_node, info_type);
+	}
+	else if(info_type == PARENT_NODE)
+	{
+		NodeModel * parent_node = GetModel(info_value);
+		current_node->UpdateParent(parent_node);
+	}
+	else if(info_type == VOLTAGE_DATA)
+	{
+		current_node->UpdateBatteryData(info_value);
+	}
+}
+
+static NodeModel * GetModel(unsigned int node_id)
+{
+	//Create if it doesn't exist
+	if(!node_models.count(node_id))
+	{
+		node_models[node_id] = NodeModel(node_id);
+	}
+
+	return &node_models[node_id];
+}
+
+unsigned long long int GetTime()
+{
+	time_t seconds;
+	seconds = time(NULL);
+	return seconds;
 }
