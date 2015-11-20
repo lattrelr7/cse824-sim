@@ -255,9 +255,16 @@ std::string NodeModel::PrintNode()
 	return ss.str();
 }
 
-void NodeModel::UpdateBatteryData(unsigned int voltage)
+bool NodeModel::UpdateBatteryData(unsigned int voltage)
 {
+	bool changed = false;
+	if(_last_voltage_value != voltage)
+	{
+		_last_voltage_value = voltage;
+		changed = true;
+	}
 
+	return changed;
 }
 
 void NodeModel::UpdateSensorData(unsigned int data)
@@ -282,26 +289,30 @@ void NodeModel::UpdateSensorData(unsigned int data)
 	_last_msg_timestamp = GetTime();
 }
 
-void NodeModel::UpdateNeighborHeardBy(NodeModel * node, INFO_TYPES info_type)
+bool NodeModel::UpdateNeighborHeardBy(NodeModel * node, INFO_TYPES info_type)
 {
+	bool changed = false;
 	if(info_type == FOUND_NODE)
 	{
 		//If node is in neither list add to max
 		if(!IsNodeInList(node, _heard_by) && !IsNodeInList(node, _n_heard_by))
 		{
 			_max_heard_by++;
+			changed = true;
 		}
 
 		//Check if node is already heard
 		if(!IsNodeInList(node, _heard_by))
 		{
 			_heard_by.push_back(node);
+			changed = true;
 		}
 
 		//Check if node is in _n_heard_by
 		if(IsNodeInList(node, _n_heard_by))
 		{
 			_n_heard_by.remove(node);
+			changed = true;
 		}
 	}
 	else
@@ -311,30 +322,36 @@ void NodeModel::UpdateNeighborHeardBy(NodeModel * node, INFO_TYPES info_type)
 		if(!IsNodeInList(node, _n_heard_by))
 		{
 			_n_heard_by.push_back(node);
+			changed = true;
 		}
 	}
+	return changed;
 }
 
-void NodeModel::UpdateNeighborHeard(NodeModel * node, INFO_TYPES info_type)
+bool NodeModel::UpdateNeighborHeard(NodeModel * node, INFO_TYPES info_type)
 {
+	bool changed = false;
 	if(info_type == FOUND_NODE)
 	{
 		//If node is in neither list add to max
 		if(!IsNodeInList(node, _heard) && !IsNodeInList(node, _n_heard))
 		{
 			_max_heard++;
+			changed = true;
 		}
 
 		//Check if node is already heard
 		if(!IsNodeInList(node, _heard))
 		{
 			_heard.push_back(node);
+			changed = true;
 		}
 
 		//Check if node is in _n_heard
 		if(IsNodeInList(node, _n_heard))
 		{
 			_n_heard.remove(node);
+			changed = true;
 		}
 	}
 	else
@@ -344,14 +361,18 @@ void NodeModel::UpdateNeighborHeard(NodeModel * node, INFO_TYPES info_type)
 		if(!IsNodeInList(node, _n_heard))
 		{
 			_n_heard.push_back(node);
+			changed = true;
 		}
 	}
+	return changed;
 }
 
-void NodeModel::UpdateParent(NodeModel * node)
+bool NodeModel::UpdateParent(NodeModel * node)
 {
+	bool changed = false;
 	if(_parent != node)
 	{
+		changed = true;
 		if(_parent != NULL)
 		{
 
@@ -364,6 +385,7 @@ void NodeModel::UpdateParent(NodeModel * node)
 		_parent_id = node->_id;
 		_parent->_children.push_back(this);
 	}
+	return changed;
 }
 
 unsigned long long int NodeModel::GetTime()
@@ -481,4 +503,81 @@ std::string NodeModel::PrintTopology(int level)
 	}
 
 	return ss.str();
+}
+
+std::string NodeModel::ListToString(std::list<NodeModel*> node_list)
+{
+	std::ostringstream ss;
+	unsigned int count = 0;
+	ss << "'";
+	for (std::list<NodeModel *>::iterator it=node_list.begin(); it!=node_list.end(); ++it)
+	{
+		ss << (*it)->GetId();
+		if(count != node_list.size() - 1)
+		{
+			ss << ",";
+		}
+		count++;
+	}
+	ss << "'";
+	return ss.str();
+}
+
+void NodeModel::UpdateDb(sqlite3 * db)
+{
+	const char insertTemplate[] = "INSERT INTO NodeModel ("
+			"CurrentTime,"
+			"NodeId,"
+			"ParentId,"
+			"IsSink,"
+			"CurrentState,"
+			"PathFailedId,"
+			"Children,"
+			"NodesHeard,"
+			"NodesNoLongerHeard,"
+			"NodesHeardBy,"
+			"NodesNoLongerHeardBy,"
+			"MaxHeard,"
+			"MaxHeardBy,"
+			"MsgsRxed,"
+			"LastSensorValue,"
+			"LastVoltageValue,"
+			"LastMsgTime,"
+			"LastRouteUpdateTime,"
+			"LastStateChangeTime"
+			") VALUES(%llu,%d,%d,%d,%d,%d,%s,%s,%s,%s,%s,%d,%d,%d,%d,%d,%llu,%llu,%llu);";
+
+	int rc = 0;
+	char *err_msg = 0;
+	char query[1024];
+
+	sprintf(query, insertTemplate,
+			GetTime(),
+			_id,
+			_parent_id,
+			(int)_is_sink,
+			_current_state,
+			_path_failed_id,
+			ListToString(_children).c_str(),
+			ListToString(_heard).c_str(),
+			ListToString(_n_heard).c_str(),
+			ListToString(_heard_by).c_str(),
+			ListToString(_n_heard_by).c_str(),
+			_max_heard,
+			_max_heard_by,
+			_msgs_rxed,
+			_last_sensor_value,
+			_last_voltage_value,
+			_last_msg_timestamp,
+			_last_route_update_timestamp,
+			_last_state_change_timestamp
+			);
+
+	rc = sqlite3_exec(db, query, 0, 0, &err_msg);
+
+	if (rc != SQLITE_OK )
+	{
+		printf("SQL error: %s\nUsing SQL Query %s\n", err_msg, query);
+		sqlite3_free(err_msg);
+	}
 }

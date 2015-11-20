@@ -10,6 +10,7 @@
 
 #include <list>
 #include <string>
+#include <sqlite3.h>
 #include "hm_message.h"
 
 #define ROUTE_STABLE_TIME 60
@@ -36,17 +37,19 @@ public:
 	NodeModel(unsigned int id);
 	virtual ~NodeModel();
 	void UpdateNodeState();
-	void UpdateBatteryData(unsigned int voltage);
+	bool UpdateBatteryData(unsigned int voltage);
 	void UpdateSensorData(unsigned int data);
-	void UpdateNeighborHeardBy(NodeModel * node, INFO_TYPES info_type);
-	void UpdateNeighborHeard(NodeModel * node, INFO_TYPES info_type);
-	void UpdateParent(NodeModel * node);
+	bool UpdateNeighborHeardBy(NodeModel * node, INFO_TYPES info_type);
+	bool UpdateNeighborHeard(NodeModel * node, INFO_TYPES info_type);
+	bool UpdateParent(NodeModel * node);
+	void UpdateDb(sqlite3 * db);
 	std::string PrintNode();
 	std::string PrintSummary();
 	std::string PrintTopology(int level);
+	unsigned int GetId() {return _id;}
 
 private:
-	void UpdateDb();
+	std::string ListToString(std::list<NodeModel*> node_list);
 	bool IsRouteBroken();
 	bool AreChildrenBroken();
 	bool AreSelfAndChildrenBroken();

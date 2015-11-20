@@ -23,7 +23,7 @@
 static void hexprint(uint8_t *packet, int len);
 static void * InputHandlerThread(void * args);
 static void * SerialListenThread(void * args);
-static void * SQLHandlerThread(void * args);
+static void UpdateDbFaultData(int nodeId, int value);
 static void * UpdateAndLogNodeModel(void * args);
 static void InjectFault(Tossim * t, int node_addr, uint8_t fault);
 static void SendNetworkCommand(Tossim * t, NETWORK_COMMAND_TYPES net_cmd_type);
@@ -61,9 +61,7 @@ int main()
 	fclose(tc_dbg_out);
 	fclose(tc_model_out);
 
-	
 	int rc = sqlite3_open("824Sim.db", &db);
-    
     if (rc != SQLITE_OK) {
         fprintf(stderr, "Cannot open database: %s\n", sqlite3_errmsg(db));
         sqlite3_close(db);
@@ -119,11 +117,10 @@ int main()
 	}
 	std::cout << std::endl;
 
-	pthread_t input_thread, serial_rx_thread, sql_handle_thread, model_thread;
+	pthread_t input_thread, serial_rx_thread, model_thread;
 
 	pthread_create(&input_thread, NULL, InputHandlerThread, t);
 	pthread_create(&serial_rx_thread, NULL, SerialListenThread, NULL);
-	pthread_create(&sql_handle_thread, NULL, SQLHandlerThread, NULL);
 	pthread_create(&model_thread, NULL, UpdateAndLogNodeModel, NULL);
 	
 
@@ -297,7 +294,7 @@ static void * SerialListenThread(void * args)
 
 				data_rxed += 5; //(TTL + node id + sensor data)
 
-				my_queue.Enqueue(*payload);
+				UpdateDbFaultData(ntohs(payload->node_id), ntohs(payload->sensor_data));
 			}
 			if(header->type == EXT_TYPE)
 			{
@@ -338,28 +335,20 @@ static void LogTcMsg( const char * format, ... )
 }
 
 
-static void * SQLHandlerThread(void * args)
+static void UpdateDbFaultData(int nodeId, int value)
 {
-	const char insertTemplate[] = "INSERT INTO FaultMessages (NODEID,PARAM2,PARAM3,PARAM4,PARAM5) VALUES(%d, %d, %d, %d, %d);";
-	// Loop forever
+	const char insertTemplate[] = "INSERT INTO FaultMessages (NodeId,Value) VALUES(%d,%d);";
 	int rc = 0;
 	char *err_msg = 0;
-	while(1){
-		message_payload_t payload = my_queue.Dequeue();
-		char query[128];
-		sprintf(query, insertTemplate, ntohs(payload.node_id), ntohs(payload.sensor_data), 0, 0, 0);
-		rc = sqlite3_exec(db, query, 0, 0, &err_msg);
-		
-		if (rc != SQLITE_OK ) {
-			printf("SQL error: %s\nUsing SQL Query %s\n", err_msg, query);
-			sqlite3_free(err_msg);        
-			sqlite3_close(db);
-			break;
-		}
+	char query[128];
+	sprintf(query, insertTemplate, nodeId, value);
+	rc = sqlite3_exec(db, query, 0, 0, &err_msg);
+
+	if (rc != SQLITE_OK )
+	{
+		printf("SQL error: %s\nUsing SQL Query %s\n", err_msg, query);
+		sqlite3_free(err_msg);
 	}
-	
-	sqlite3_close(db);
-	return NULL;
 }
 
 static void * UpdateAndLogNodeModel(void * args)
@@ -411,17 +400,29 @@ static void ProcessInfo(NodeModel * current_node, INFO_TYPES info_type, uint16_t
 	if(info_type == FOUND_NODE || info_type == LOST_NODE)
 	{
 		NodeModel * neighbor_node = GetModel(info_value);
-		current_node->UpdateNeighborHeard(neighbor_node, info_type);
-		neighbor_node->UpdateNeighborHeardBy(current_node, info_type);
+		if(current_node->UpdateNeighborHeard(neighbor_node, info_type))
+		{
+			current_node->UpdateDb(db);
+		}
+		if(neighbor_node->UpdateNeighborHeardBy(current_node, info_type))
+		{
+			neighbor_node->UpdateDb(db);
+		}
 	}
 	else if(info_type == PARENT_NODE)
 	{
 		NodeModel * parent_node = GetModel(info_value);
-		current_node->UpdateParent(parent_node);
+		if(current_node->UpdateParent(parent_node))
+		{
+			current_node->UpdateDb(db);
+		}
 	}
 	else if(info_type == VOLTAGE_DATA)
 	{
-		current_node->UpdateBatteryData(info_value);
+		if(current_node->UpdateBatteryData(info_value))
+		{
+			current_node->UpdateDb(db);
+		}
 	}
 }
 
@@ -431,6 +432,7 @@ static NodeModel * GetModel(unsigned int node_id)
 	if(!node_models.count(node_id))
 	{
 		node_models[node_id] = NodeModel(node_id);
+		node_models[node_id].UpdateDb(db);
 	}
 
 	return &node_models[node_id];
