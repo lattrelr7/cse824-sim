@@ -18,6 +18,9 @@ enum MESSAGE_TYPES
 	FAULT_TYPE = 2, /* Fault injection message */
 	ALIVE_TYPE = 3, /* Node alive broadcast - no payload */
 	INFO_ONLY = 5, /* Message from sink */
+	EXT2_TYPE = 6,
+	EXT3_TYPE = 7,
+	EXT4_TYPE = 8,
 };
 
 enum FAULT_TYPES
@@ -71,6 +74,42 @@ struct ext_message_payload_t {
 	uint16_t sensor_data;
 	uint8_t info_type;
 	uint16_t info_value;
+} __attribute__ ((packed));
+
+struct ext2_message_payload_t {
+	uint8_t ttl;
+	uint16_t node_id;
+	uint16_t sensor_data;
+	uint8_t info_type;
+	uint16_t info_value;
+	uint8_t info_type2;
+	uint16_t info_value2;
+} __attribute__ ((packed));
+
+struct ext3_message_payload_t {
+	uint8_t ttl;
+	uint16_t node_id;
+	uint16_t sensor_data;
+	uint8_t info_type;
+	uint16_t info_value;
+	uint8_t info_type2;
+	uint16_t info_value2;
+	uint8_t info_type3;
+	uint16_t info_value3;
+} __attribute__ ((packed));
+
+struct ext4_message_payload_t {
+	uint8_t ttl;
+	uint16_t node_id;
+	uint16_t sensor_data;
+	uint8_t info_type;
+	uint16_t info_value;
+	uint8_t info_type2;
+	uint16_t info_value2;
+	uint8_t info_type3;
+	uint16_t info_value3;
+	uint8_t info_type4;
+	uint16_t info_value4;
 } __attribute__ ((packed));
 
 struct info_payload_t {

@@ -37,6 +37,9 @@ implementation
 	App.RadioSend -> Radio;
 	App.RadioReceiveSensor -> Radio.Receive[SENSOR_TYPE];
 	App.RadioReceiveSensor -> Radio.Receive[EXT_TYPE];
+	App.RadioReceiveSensor -> Radio.Receive[EXT2_TYPE];
+	App.RadioReceiveSensor -> Radio.Receive[EXT3_TYPE];
+	App.RadioReceiveSensor -> Radio.Receive[EXT4_TYPE];
 	App.RadioReceiveFault -> Radio.Receive[FAULT_TYPE];
 	App.RadioReceiveRoute -> Radio.Receive[NETWORK_TYPE];
 	#ifndef NO_HM

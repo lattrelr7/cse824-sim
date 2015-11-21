@@ -91,6 +91,7 @@ implementation
 	void check_for_lost_route(am_addr_t node_id);
 	void send_info_on_serial();
 	void add_info(uint8_t info_type, uint16_t info_value);
+	uint8_t get_info_queue_depth();
 	
 	void failBlink() {call Leds.led2Toggle();}
 	void dropBlink() {call Leds.led2Toggle();}
@@ -148,6 +149,9 @@ implementation
 	event void Timer0.fired() 
 	{
 		uint16_t sensor_data;
+		uint8_t cur_queue_size;
+		ext4_message_payload_t payload;
+		uint8_t i;
 		
 		/* Generate random sensor data 
 		 * Limit to 0x0080 - 0x0FFF for normal behavior */
@@ -157,24 +161,77 @@ implementation
 		//dbg("Payload","Payload: %d\n", payload.sensor_reading);
 		
 		/* Check if we should send extended message or not */
-		if(infoIn != infoOut)
+		if(infoIn != infoOut && sent_booted)
 		{
-			ext_message_payload_t payload;
+			cur_queue_size = get_info_queue_depth();
+			
 			payload.ttl = current_distance;
 			payload.node_id = TOS_NODE_ID;
 			payload.sensor_data = sensor_data;
+			
+			if(cur_queue_size >= 4)
+			{
+				payload.info_type4 = info_queue[(infoOut + 3) % INFO_QUEUE_LEN].info_type;
+				payload.info_value4 = info_queue[(infoOut + 3) % INFO_QUEUE_LEN].info_value;
+			}
+			if(cur_queue_size >= 3)
+			{
+				payload.info_type3 = info_queue[(infoOut + 2) % INFO_QUEUE_LEN].info_type;
+				payload.info_value3 = info_queue[(infoOut + 2) % INFO_QUEUE_LEN].info_value;
+			}
+			if(cur_queue_size >= 2)
+			{
+				payload.info_type2 = info_queue[(infoOut + 1) % INFO_QUEUE_LEN].info_type;
+				payload.info_value2 = info_queue[(infoOut + 1) % INFO_QUEUE_LEN].info_value;
+			}
+			
 			payload.info_type = info_queue[infoOut].info_type;
 			payload.info_value = info_queue[infoOut].info_value;
-			radioAddUnicast(radio_dest, EXT_TYPE, (void *)&payload, sizeof(ext_message_payload_t));
 			
-			if (++infoOut >= INFO_QUEUE_LEN)
+			if(cur_queue_size >= 4)
 			{
-				infoOut = 0;
+				radioAddUnicast(radio_dest, EXT4_TYPE, (void *)&payload, sizeof(ext4_message_payload_t));
+				for(i=0; i < 4; i++)
+				{
+					if (++infoOut >= INFO_QUEUE_LEN)
+					{
+						infoOut = 0;
+					}
+				}
+			}
+			else if(cur_queue_size >= 3)
+			{
+				radioAddUnicast(radio_dest, EXT3_TYPE, (void *)&payload, sizeof(ext3_message_payload_t));
+				for(i=0; i < 3; i++)
+				{
+					if (++infoOut >= INFO_QUEUE_LEN)
+					{
+						infoOut = 0;
+					}
+				}
+			}
+			else if(cur_queue_size >= 2)
+			{
+				radioAddUnicast(radio_dest, EXT2_TYPE, (void *)&payload, sizeof(ext2_message_payload_t));
+				for(i=0; i < 2; i++)
+				{
+					if (++infoOut >= INFO_QUEUE_LEN)
+					{
+						infoOut = 0;
+					}
+				}
+			}
+			else
+			{
+				radioAddUnicast(radio_dest, EXT_TYPE, (void *)&payload, sizeof(ext_message_payload_t));
+				if (++infoOut >= INFO_QUEUE_LEN)
+				{
+					infoOut = 0;
+				}
 			}
 		}
 		else
 		{
-			message_payload_t payload;
 			payload.ttl = current_distance;
 			payload.node_id = TOS_NODE_ID;
 			payload.sensor_data = sensor_data;
@@ -227,15 +284,7 @@ implementation
 			}
 		}
 
-		//Get current queue size
-		if(infoOut > infoIn)
-		{
-			cur_queue_size = (INFO_QUEUE_LEN - infoOut) + infoIn;	
-		}
-		else
-		{
-			cur_queue_size = infoIn - infoOut;
-		}
+		cur_queue_size = get_info_queue_depth();
 		
 		if(queue_add_size > (INFO_QUEUE_LEN - cur_queue_size) || (cur_queue_size > INFO_QUEUE_LEN/4))
 		{
@@ -761,4 +810,19 @@ implementation
 		last_voltage = val;
 	}
 	#endif
+	
+	uint8_t get_info_queue_depth()
+	{
+		uint8_t cur_queue_size;
+		//Get current queue size
+		if(infoOut > infoIn)
+		{
+			cur_queue_size = (INFO_QUEUE_LEN - infoOut) + infoIn;	
+		}
+		else
+		{
+			cur_queue_size = infoIn - infoOut;
+		}
+		return cur_queue_size;
+	}
 }

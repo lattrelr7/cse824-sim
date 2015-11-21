@@ -24,6 +24,9 @@ enum MESSAGE_TYPES
 	FAULT_TYPE = 2, /* Fault injection message */
 	ALIVE_TYPE = 3, /* Node alive broadcast - no payload */
 	INFO_ONLY = 5, /* Message from sink */
+	EXT2_TYPE = 6,
+	EXT3_TYPE = 7,
+	EXT4_TYPE = 8,
 };
 
 enum FAULT_TYPES
@@ -96,6 +99,45 @@ typedef nx_struct ext_message_payload_t {
 	nx_uint8_t info_type;
 	nx_uint16_t info_value;
 } ext_message_payload_t;
+
+/* Extended payload structure */
+typedef nx_struct ext2_message_payload_t {
+	nx_uint8_t ttl;
+	nx_uint16_t node_id;
+	nx_uint16_t sensor_data;
+	nx_uint8_t info_type;
+	nx_uint16_t info_value;
+	nx_uint8_t info_type2;
+	nx_uint16_t info_value2;
+} ext2_message_payload_t;
+
+/* Extended payload structure */
+typedef nx_struct ext3_message_payload_t {
+	nx_uint8_t ttl;
+	nx_uint16_t node_id;
+	nx_uint16_t sensor_data;
+	nx_uint8_t info_type;
+	nx_uint16_t info_value;
+	nx_uint8_t info_type2;
+	nx_uint16_t info_value2;
+	nx_uint8_t info_type3;
+	nx_uint16_t info_value3;
+} ext3_message_payload_t;
+
+/* Extended payload structure */
+typedef nx_struct ext4_message_payload_t {
+	nx_uint8_t ttl;
+	nx_uint16_t node_id;
+	nx_uint16_t sensor_data;
+	nx_uint8_t info_type;
+	nx_uint16_t info_value;
+	nx_uint8_t info_type2;
+	nx_uint16_t info_value2;
+	nx_uint8_t info_type3;
+	nx_uint16_t info_value3;
+	nx_uint8_t info_type4;
+	nx_uint16_t info_value4;
+} ext4_message_payload_t;
 
 typedef nx_struct info_payload_t {
 	nx_uint16_t node_id;

@@ -20,6 +20,8 @@
 #include "synchronized_queue.h"
 #include "NodeModel.h"
 
+#define TIME_LIMIT 1800
+
 static void hexprint(uint8_t *packet, int len);
 static void * InputHandlerThread(void * args);
 static void * SerialListenThread(void * args);
@@ -56,8 +58,10 @@ int main()
 	FILE * noise_file = fopen("noise.txt", "r");
 	FILE * sim_dbg_out = fopen("sim_dbg_out.txt", "w");
 	FILE * powertossimz = fopen("Energy.txt", "w");
+	FILE * data_metrics = fopen("Data.txt", "w"); /*Wipe log file*/
 	FILE * tc_dbg_out = fopen("tc_dbg_out.txt", "w"); /*Wipe log file*/
 	FILE * tc_model_out = fopen("tc_model_out.txt", "w"); /*Wipe log file*/
+	fclose(data_metrics);
 	fclose(tc_dbg_out);
 	fclose(tc_model_out);
 
@@ -135,6 +139,11 @@ int main()
 		throttle.checkThrottle();
 		t->runNextEvent();
 		sf.process();
+
+		if(TIME_LIMIT && (GetTime() - start_time > TIME_LIMIT))
+		{
+			break;
+		}
 	}
 }
 
@@ -296,13 +305,49 @@ static void * SerialListenThread(void * args)
 
 				UpdateDbFaultData(ntohs(payload->node_id), ntohs(payload->sensor_data));
 			}
-			if(header->type == EXT_TYPE)
+			if(header->type == EXT_TYPE || header->type == EXT2_TYPE || header->type == EXT3_TYPE || header->type == EXT4_TYPE)
 			{
 				ext_message_payload_t * payload = (ext_message_payload_t *)(packet + sizeof(serial_header_t));
 				LogTcMsg("*********EXT MESSAGE*********\n");
 				LogTcMsg("Node ID: %d\n", ntohs(payload->node_id));
 				LogTcMsg("Info Type: %d\n", payload->info_type);
 				LogTcMsg("Info Value: %d\n", ntohs(payload->info_value));
+				LogTcMsg("********************************\n");
+
+				data_rxed += 3;
+				hm_rxed += 3; //(TTL + node id + sensor data)
+			}
+			if(header->type == EXT2_TYPE || header->type == EXT3_TYPE || header->type == EXT4_TYPE)
+			{
+				ext2_message_payload_t * payload = (ext2_message_payload_t *)(packet + sizeof(serial_header_t));
+				LogTcMsg("*********EXT2 MESSAGE*********\n");
+				LogTcMsg("Node ID: %d\n", ntohs(payload->node_id));
+				LogTcMsg("Info Type: %d\n", payload->info_type2);
+				LogTcMsg("Info Value: %d\n", ntohs(payload->info_value2));
+				LogTcMsg("********************************\n");
+
+				data_rxed += 3;
+				hm_rxed += 3; //(TTL + node id + sensor data)
+			}
+			if(header->type == EXT3_TYPE || header->type == EXT4_TYPE)
+			{
+				ext3_message_payload_t * payload = (ext3_message_payload_t *)(packet + sizeof(serial_header_t));
+				LogTcMsg("*********EXT3 MESSAGE*********\n");
+				LogTcMsg("Node ID: %d\n", ntohs(payload->node_id));
+				LogTcMsg("Info Type: %d\n", payload->info_type3);
+				LogTcMsg("Info Value: %d\n", ntohs(payload->info_value3));
+				LogTcMsg("********************************\n");
+
+				data_rxed += 3;
+				hm_rxed += 3; //(TTL + node id + sensor data)
+			}
+			if(header->type == EXT4_TYPE)
+			{
+				ext4_message_payload_t * payload = (ext4_message_payload_t *)(packet + sizeof(serial_header_t));
+				LogTcMsg("*********EXT4 MESSAGE*********\n");
+				LogTcMsg("Node ID: %d\n", ntohs(payload->node_id));
+				LogTcMsg("Info Type: %d\n", payload->info_type4);
+				LogTcMsg("Info Value: %d\n", ntohs(payload->info_value4));
 				LogTcMsg("********************************\n");
 
 				data_rxed += 3;
@@ -353,6 +398,8 @@ static void UpdateDbFaultData(int nodeId, int value)
 
 static void * UpdateAndLogNodeModel(void * args)
 {
+
+
 	while(1)
 	{
 		FILE * tc_model_out = fopen("tc_model_out.txt", "w");
@@ -366,6 +413,15 @@ static void * UpdateAndLogNodeModel(void * args)
 			fprintf(tc_model_out, "%s", it->second.PrintNode().c_str());
 		}
 		fclose(tc_model_out);
+
+		FILE * data_metrics = fopen("Data.txt", "a");
+		fprintf(data_metrics, "%llu,%llu,%llu,%f\n",
+				GetTime() - start_time,
+				data_rxed,
+				hm_rxed,
+				((float)hm_rxed/(float)data_rxed) * 100);
+		fclose(data_metrics);
+
 		sleep(2);
 	}
 
@@ -376,18 +432,43 @@ static void UpdateFaultModel(uint8_t * packet)
 {
 	serial_header_t * header = (serial_header_t *)packet;
 
-	if(header->type == SENSOR_TYPE || header->type == EXT_TYPE)
+	if(header->type == SENSOR_TYPE ||
+	   header->type == EXT_TYPE ||
+	   header->type == EXT2_TYPE ||
+	   header->type == EXT3_TYPE ||
+	   header->type == EXT4_TYPE)
 	{
 		message_payload_t * payload = (message_payload_t *)(packet + sizeof(serial_header_t));
 		NodeModel * current_node = GetModel(ntohs(payload->node_id));
 		current_node->UpdateSensorData(ntohs(payload->sensor_data));
 	}
 
-	if(header->type == EXT_TYPE)
+	if(header->type == EXT_TYPE || header->type == EXT2_TYPE || header->type == EXT3_TYPE || header->type == EXT4_TYPE)
 	{
 		ext_message_payload_t * payload = (ext_message_payload_t *)(packet + sizeof(serial_header_t));
 		NodeModel  * current_node = GetModel(ntohs(payload->node_id));
 		ProcessInfo(current_node, (INFO_TYPES)payload->info_type, ntohs(payload->info_value));
+	}
+
+	if(header->type == EXT2_TYPE || header->type == EXT3_TYPE || header->type == EXT4_TYPE)
+	{
+		ext2_message_payload_t * payload = (ext2_message_payload_t *)(packet + sizeof(serial_header_t));
+		NodeModel  * current_node = GetModel(ntohs(payload->node_id));
+		ProcessInfo(current_node, (INFO_TYPES)payload->info_type2, ntohs(payload->info_value2));
+	}
+
+	if(header->type == EXT3_TYPE || header->type == EXT4_TYPE )
+	{
+		ext3_message_payload_t * payload = (ext3_message_payload_t *)(packet + sizeof(serial_header_t));
+		NodeModel  * current_node = GetModel(ntohs(payload->node_id));
+		ProcessInfo(current_node, (INFO_TYPES)payload->info_type3, ntohs(payload->info_value3));
+	}
+
+	if(header->type == EXT4_TYPE)
+	{
+		ext4_message_payload_t * payload = (ext4_message_payload_t *)(packet + sizeof(serial_header_t));
+		NodeModel  * current_node = GetModel(ntohs(payload->node_id));
+		ProcessInfo(current_node, (INFO_TYPES)payload->info_type4, ntohs(payload->info_value4));
 	}
 
 	if(header->type == INFO_ONLY)
