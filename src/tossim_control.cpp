@@ -20,7 +20,7 @@
 #include "synchronized_queue.h"
 #include "NodeModel.h"
 
-#define TIME_LIMIT 1800
+#define TIME_LIMIT 0
 
 static void hexprint(uint8_t *packet, int len);
 static void * InputHandlerThread(void * args);
