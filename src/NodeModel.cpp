@@ -74,7 +74,7 @@ NodeModel::~NodeModel() {
 	// TODO Auto-generated destructor stub
 }
 
-void NodeModel::UpdateNodeState()
+bool NodeModel::UpdateNodeState()
 {
 	unsigned int start_state = _current_state;
 
@@ -182,6 +182,8 @@ void NodeModel::UpdateNodeState()
 	}
 
 	PrintNode();
+
+	return (_current_state != start_state);
 }
 
 std::string NodeModel::PrintSummary()

@@ -359,7 +359,10 @@ static void * UpdateAndLogNodeModel(void * args)
 		std::map<unsigned int, NodeModel>::iterator it;
 		for (it = node_models.begin(); it != node_models.end(); it++)
 		{
-			it->second.UpdateNodeState();
+			if(it->second.UpdateNodeState())
+			{
+				it->second.UpdateDb(db);
+			}
 			fprintf(tc_model_out, "%s", it->second.PrintNode().c_str());
 		}
 		fclose(tc_model_out);

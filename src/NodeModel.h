@@ -36,7 +36,7 @@ public:
 	NodeModel();
 	NodeModel(unsigned int id);
 	virtual ~NodeModel();
-	void UpdateNodeState();
+	bool UpdateNodeState();
 	bool UpdateBatteryData(unsigned int voltage);
 	void UpdateSensorData(unsigned int data);
 	bool UpdateNeighborHeardBy(NodeModel * node, INFO_TYPES info_type);
