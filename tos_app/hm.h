@@ -3,6 +3,7 @@
 
 //#define SNOOP_MODE
 //#define REAL_VOLTAGE
+//#define NO_HM
 
 #define SENSE_PERIOD_MILLI 10000
 #define ALIVE_PERIOD_MILLI (3 * SENSE_PERIOD_MILLI) //30000

@@ -17,6 +17,9 @@ module hmC @safe()
 		interface SplitControl as SerialControl;
 		interface SplitControl as RadioControl;
 		
+		interface Packet as RadioPacket;
+		interface AMPacket as RadioAMPacket;
+		
 		interface AMSend as UartSend[am_id_t id];
 		interface Receive as UartReceive;
 		interface Packet as UartPacket;
@@ -27,6 +30,7 @@ module hmC @safe()
 		interface Receive as RadioReceiveRoute;
 		interface Receive as RadioReceiveFault;
 		
+		#ifndef NO_HM
 		#ifndef SNOOP_MODE
 		interface Receive as RadioReceiveAlive;
 		#endif
@@ -35,11 +39,9 @@ module hmC @safe()
 		interface Receive as RadioReceiveSnoop[am_id_t id];
 		#endif
 		
-		interface Packet as RadioPacket;
-		interface AMPacket as RadioAMPacket;
-		
 		#ifdef REAL_VOLTAGE
 		interface Read<uint16_t>;
+		#endif
 		#endif
 	}
 }
@@ -127,8 +129,10 @@ implementation
 			sent_booted = FALSE;
 		}
 		
+		#ifndef NO_HM
 		call Timer1.startPeriodic(ALIVE_PERIOD_MILLI);
 		call Timer2.startPeriodic(ALIVE_PERIOD_MILLI);
+		#endif
 		
 		dbg("Boot","Boot: Node %d radio started.\n", TOS_NODE_ID);
 
@@ -410,6 +414,7 @@ implementation
 		return ret;
 	}
 	
+	#ifndef NO_HM
 	#ifndef SNOOP_MODE
 	event message_t *RadioReceiveAlive.receive(message_t *msg, void *payload, uint8_t len) 
 	{
@@ -429,6 +434,7 @@ implementation
 		}
 		return ret;
 	}
+	#endif
 	#endif
 
 	/* On a route message, we want to update the route to the closest node with
@@ -742,9 +748,11 @@ implementation
 	
 	void add_info(uint8_t info_type, uint16_t info_value)
 	{
+		#ifndef NO_HM
 		info_queue[infoIn].info_type = info_type;
 		info_queue[infoIn].info_value = info_value;
 		infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
+		#endif
 	}
 	
 	#ifdef REAL_VOLTAGE

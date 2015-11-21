@@ -39,11 +39,13 @@ implementation
 	App.RadioReceiveSensor -> Radio.Receive[EXT_TYPE];
 	App.RadioReceiveFault -> Radio.Receive[FAULT_TYPE];
 	App.RadioReceiveRoute -> Radio.Receive[NETWORK_TYPE];
+	#ifndef NO_HM
 	#ifndef SNOOP_MODE
 	App.RadioReceiveAlive -> Radio.Receive[ALIVE_TYPE];
 	#endif
 	#ifdef SNOOP_MODE
 	App.RadioReceiveSnoop -> Radio.Snoop;
+	#endif
 	#endif
 	App.RadioPacket -> Radio;
 	App.RadioAMPacket -> Radio;
