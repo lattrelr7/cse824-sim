@@ -12,5 +12,6 @@ tc:
 	cd src; make
 
 clean:
+	rm 824Sim.db
 	cd tos_app; make clean
 	cd src; make dist-clean

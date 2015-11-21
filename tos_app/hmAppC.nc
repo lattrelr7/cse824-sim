@@ -13,6 +13,9 @@ implementation
 	components ActiveMessageC as Radio;
 	components hmC as App;
 	components RandomC;
+	#ifdef REAL_VOLTAGE
+	components new VoltageC() as Voltage;
+	#endif
 
 	MainC.Boot <- App;
 	App.Timer0 -> Timer0;
@@ -20,6 +23,9 @@ implementation
 	App.Timer2 -> Timer2;
 	App.Leds -> LedsC;
 	App.Random -> RandomC;
+	#ifdef REAL_VOLTAGE
+	App.Read -> Voltage;
+	#endif
 	
 	App.SerialControl -> Serial;
 	App.UartSend -> Serial;
@@ -33,8 +39,12 @@ implementation
 	App.RadioReceiveSensor -> Radio.Receive[EXT_TYPE];
 	App.RadioReceiveFault -> Radio.Receive[FAULT_TYPE];
 	App.RadioReceiveRoute -> Radio.Receive[NETWORK_TYPE];
+	#ifndef SNOOP_MODE
 	App.RadioReceiveAlive -> Radio.Receive[ALIVE_TYPE];
-	//App.RadioReceiveSnoop -> Radio.Snoop;
+	#endif
+	#ifdef SNOOP_MODE
+	App.RadioReceiveSnoop -> Radio.Snoop;
+	#endif
 	App.RadioPacket -> Radio;
 	App.RadioAMPacket -> Radio;
 }

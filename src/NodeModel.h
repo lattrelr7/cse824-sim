@@ -15,6 +15,7 @@
 
 #define ROUTE_STABLE_TIME 60
 #define MISSED_MESSAGE_TIME 60
+#define REBOOT_EXPIRE_TIME 60
 #define CLEAR_FAULT(x,y) (x = x & ~y)
 
 class NodeModel {
@@ -31,6 +32,7 @@ public:
 		OUT_LINK_ERRORS_MAJOR = 0x0080, /* If num heard or num heard_by < 75% of max */
 		OUT_LINK_FAILURE = 0x0100, /* If heard or heard_by is 0 */
 		BATTERY_FAILURE = 0x0200, /* Battery problems detected */
+		REBOOTED = 0x0400, /* Received a rebooted message from node */
 	};
 
 	NodeModel();
@@ -39,6 +41,7 @@ public:
 	bool UpdateNodeState();
 	bool UpdateBatteryData(unsigned int voltage);
 	void UpdateSensorData(unsigned int data);
+	void UpdateBooted();
 	bool UpdateNeighborHeardBy(NodeModel * node, INFO_TYPES info_type);
 	bool UpdateNeighborHeard(NodeModel * node, INFO_TYPES info_type);
 	bool UpdateParent(NodeModel * node);
@@ -83,6 +86,8 @@ private:
 	unsigned long long int _state_duration;
 	unsigned long long int _last_state_change_timestamp;
 	unsigned int _current_state;
+	unsigned int _times_rebooted;
+	unsigned long long int _last_booted_msg_timestamp;
 };
 
 

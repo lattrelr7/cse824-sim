@@ -427,6 +427,11 @@ static void ProcessInfo(NodeModel * current_node, INFO_TYPES info_type, uint16_t
 			current_node->UpdateDb(db);
 		}
 	}
+	else if(info_type == BOOTED)
+	{
+		current_node->UpdateBooted();
+		current_node->UpdateDb(db);
+	}
 }
 
 static NodeModel * GetModel(unsigned int node_id)

@@ -1,6 +1,9 @@
 #ifndef HMAPP_H
 #define HMAPP_H
 
+//#define SNOOP_MODE
+//#define REAL_VOLTAGE
+
 #define SENSE_PERIOD_MILLI 10000
 #define ALIVE_PERIOD_MILLI (3 * SENSE_PERIOD_MILLI) //30000
 #define REPEAT_INFO_MILLI (12 * ALIVE_PERIOD_MILLI) //240000
@@ -41,6 +44,7 @@ enum INFO_TYPES
 	LOST_NODE = 1,
 	PARENT_NODE = 2,
 	VOLTAGE_DATA = 3,
+	BOOTED = 4,
 };
 
 typedef nx_struct neighbor_t {

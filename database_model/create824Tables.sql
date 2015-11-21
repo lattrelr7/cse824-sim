@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS NodeModel (
   'IsSink' INT,
   'CurrentState' INT,
   'PathFailedId' INT,
+  'RebootCount' INT,
   'Children' TEXT,
   'NodesHeard' TEXT,
   'NodesNoLongerHeard' TEXT,
@@ -21,7 +22,8 @@ CREATE TABLE IF NOT EXISTS NodeModel (
   'LastVoltageValue' INT,
   'LastMsgTime' INT,
   'LastRouteUpdateTime' INT,
-  'LastStateChangeTime' INT
+  'LastStateChangeTime' INT,
+  'LastBootedTime' INT
   );
   
 

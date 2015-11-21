@@ -36,6 +36,8 @@ NodeModel::NodeModel()
 	_avg_voltage_diff = 0;
 	_voltage_value_count = 0;
 	_path_failed_id = 0;
+	_times_rebooted = 0;
+	_last_booted_msg_timestamp = 0;
 }
 
 NodeModel::NodeModel(unsigned int id)
@@ -68,6 +70,8 @@ NodeModel::NodeModel(unsigned int id)
 	_avg_voltage_diff = 0;
 	_voltage_value_count = 0;
 	_path_failed_id = 0;
+	_times_rebooted = 0;
+	_last_booted_msg_timestamp = 0;
 }
 
 NodeModel::~NodeModel() {
@@ -116,10 +120,16 @@ bool NodeModel::UpdateNodeState()
 		CLEAR_FAULT(_current_state, PATH_FAILURE);
 	}
 
-	/* If parent has changed recently */
+	/* If parent has changed recently expires */
 	if(GetTime() - _last_route_update_timestamp > ROUTE_STABLE_TIME)
 	{
 		CLEAR_FAULT(_current_state, PATH_UPDATE);
+	}
+
+	/* If booted recently expires */
+	if(GetTime() - _last_booted_msg_timestamp > REBOOT_EXPIRE_TIME)
+	{
+		CLEAR_FAULT(_current_state, REBOOTED);
 	}
 
 	/* Handle heard erros, links coming IN to the node */
@@ -211,6 +221,7 @@ std::string NodeModel::PrintNode()
 	if(_current_state & OUT_LINK_ERRORS_MAJOR) {failures.push_back("OUT_LINK_ERRORS_MAJOR");}
 	if(_current_state & OUT_LINK_FAILURE) {failures.push_back("OUT_LINK_FAILURE");}
 	if(_current_state & BATTERY_FAILURE) {failures.push_back("BATTERY_FAILURE");}
+	if(_current_state & REBOOTED) {failures.push_back("REBOOTED");}
 
 	if(_current_state == 0x000)
 	{
@@ -387,7 +398,24 @@ bool NodeModel::UpdateParent(NodeModel * node)
 		_parent_id = node->_id;
 		_parent->_children.push_back(this);
 	}
+
+	//If we get a parent message we know the node has booted
+	//and that we missed the boot message
+	//
+	//The boot message is always sent first.
+	if(changed && _times_rebooted == 0)
+	{
+		UpdateBooted();
+	}
+
 	return changed;
+}
+
+void NodeModel::UpdateBooted()
+{
+	_times_rebooted++;
+	_last_booted_msg_timestamp = GetTime();
+	_current_state |= REBOOTED;
 }
 
 unsigned long long int NodeModel::GetTime()
@@ -534,6 +562,7 @@ void NodeModel::UpdateDb(sqlite3 * db)
 			"IsSink,"
 			"CurrentState,"
 			"PathFailedId,"
+			"RebootCount,"
 			"Children,"
 			"NodesHeard,"
 			"NodesNoLongerHeard,"
@@ -546,8 +575,9 @@ void NodeModel::UpdateDb(sqlite3 * db)
 			"LastVoltageValue,"
 			"LastMsgTime,"
 			"LastRouteUpdateTime,"
-			"LastStateChangeTime"
-			") VALUES(%llu,%d,%d,%d,%d,%d,%s,%s,%s,%s,%s,%d,%d,%d,%d,%d,%llu,%llu,%llu);";
+			"LastStateChangeTime,"
+			"LastBootedTime"
+			") VALUES(%llu,%d,%d,%d,%d,%d,%d,%s,%s,%s,%s,%s,%d,%d,%d,%d,%d,%llu,%llu,%llu,%llu);";
 
 	int rc = 0;
 	char *err_msg = 0;
@@ -560,6 +590,7 @@ void NodeModel::UpdateDb(sqlite3 * db)
 			(int)_is_sink,
 			_current_state,
 			_path_failed_id,
+			_times_rebooted,
 			ListToString(_children).c_str(),
 			ListToString(_heard).c_str(),
 			ListToString(_n_heard).c_str(),
@@ -572,7 +603,8 @@ void NodeModel::UpdateDb(sqlite3 * db)
 			_last_voltage_value,
 			_last_msg_timestamp,
 			_last_route_update_timestamp,
-			_last_state_change_timestamp
+			_last_state_change_timestamp,
+			_last_booted_msg_timestamp
 			);
 
 	rc = sqlite3_exec(db, query, 0, 0, &err_msg);

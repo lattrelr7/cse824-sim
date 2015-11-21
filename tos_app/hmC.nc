@@ -26,10 +26,21 @@ module hmC @safe()
 		interface Receive as RadioReceiveSensor;
 		interface Receive as RadioReceiveRoute;
 		interface Receive as RadioReceiveFault;
+		
+		#ifndef SNOOP_MODE
 		interface Receive as RadioReceiveAlive;
-		//interface Receive as RadioReceiveSnoop[am_id_t id];
+		#endif
+		
+		#ifdef SNOOP_MODE
+		interface Receive as RadioReceiveSnoop[am_id_t id];
+		#endif
+		
 		interface Packet as RadioPacket;
 		interface AMPacket as RadioAMPacket;
+		
+		#ifdef REAL_VOLTAGE
+		interface Read<uint16_t>;
+		#endif
 	}
 }
 
@@ -58,6 +69,9 @@ implementation
 	uint8_t		infoIn;
 	uint8_t		infoOut;
 	
+	bool		sent_booted;
+	uint16_t	last_voltage;
+	
 	/* Task prototypes */
 	task void radioSendTask();
 	task void uartSendTask();
@@ -73,6 +87,7 @@ implementation
 	void update_route(am_addr_t node_id, uint8_t hops_to_sink);
 	void check_for_lost_route(am_addr_t node_id);
 	void send_info_on_serial();
+	void add_info(uint8_t info_type, uint16_t info_value);
 	
 	void failBlink() {call Leds.led2Toggle();}
 	void dropBlink() {call Leds.led2Toggle();}
@@ -98,6 +113,8 @@ implementation
 		radioFull = TRUE;
 		
 		infoIn = infoOut = 0;
+		
+		last_voltage = 0;
 
 		if (call RadioControl.start() == EALREADY)
 		{
@@ -105,6 +122,7 @@ implementation
 			last_cmd_id = 0;
 			current_distance = 0;
 			radioFull = FALSE;
+			sent_booted = FALSE;
 		}
 		
 		call Timer1.startPeriodic(ALIVE_PERIOD_MILLI);
@@ -166,9 +184,11 @@ implementation
 		
 		decrement_neighbors();
 		
+		#ifndef SNOOP_MODE
 		//broadcast message
 		if(!(injected_fault & (FAIL_ALIVE | FAIL_BATTERY)))
 			radioAddBroadcast(ALIVE_TYPE, (void *)&alive_data, sizeof(alive_message_t));
+		#endif
 	}
 	
 	/* Timer2 periodic function - add neighbors to queue. There is no guarentee
@@ -177,7 +197,6 @@ implementation
 	event void Timer2.fired() 
 	{
 		uint8_t i;
-		uint16_t voltage;
 		uint8_t cur_queue_size = 0;
 		uint8_t queue_add_size = 0;
 		
@@ -211,15 +230,15 @@ implementation
 			dbg("Alive", "Re-queueing %d info messages.\n", queue_add_size);
 			if(TOS_NODE_ID != BASE_STATION_NODE_ID)
 			{
-				info_queue[infoIn].info_type = PARENT_NODE;
-				info_queue[infoIn].info_value = radio_dest;
-				infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
+				add_info(PARENT_NODE, radio_dest);
 			}
 			
-			voltage = call Random.rand16();
-			info_queue[infoIn].info_type = VOLTAGE_DATA;
-			info_queue[infoIn].info_value = voltage;
-			infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
+			#ifdef REAL_VOLTAGE
+			call Read.read();
+			#else
+			last_voltage = call Random.rand16();
+			#endif
+			add_info(VOLTAGE_DATA, last_voltage);
 			
 			for(i=0; i < MAX_NEIGHBORS; i++)
 			{
@@ -227,14 +246,12 @@ implementation
 				{
 					if(neighbors[i].count)
 					{
-						info_queue[infoIn].info_type = FOUND_NODE;
+						add_info(FOUND_NODE, neighbors[i].node_id);
 					}
 					else
 					{
-						info_queue[infoIn].info_type = LOST_NODE;
+						add_info(LOST_NODE, neighbors[i].node_id);
 					}	
-					info_queue[infoIn].info_value = neighbors[i].node_id;
-					infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
 				}
 			}
 		}
@@ -372,12 +389,6 @@ implementation
 		return ret;
 	}
 	
-	/*************************************************************************************
-	 * event message_t *RadioReceiveFault.receive(message_t *msg, void *payload, uint8_t len) 
-	 * 
-	 * 
-	 * 
-	 *************************************************************************************/
 	event message_t *RadioReceiveFault.receive(message_t *msg, void *payload, uint8_t len) 
 	{
 		message_t *ret = msg;
@@ -387,12 +398,7 @@ implementation
 		return ret;
 	}
 	
-	/*************************************************************************************
-	 * event message_t *RadioReceiveAlive.receive(message_t *msg, void *payload, uint8_t len) 
-	 * 
-	 * 
-	 * 
-	 *************************************************************************************/
+	#ifndef SNOOP_MODE
 	event message_t *RadioReceiveAlive.receive(message_t *msg, void *payload, uint8_t len) 
 	{
 		message_t *ret = msg;
@@ -400,16 +406,22 @@ implementation
 		update_neighbor(call RadioAMPacket.source(msg), ((alive_message_t *)payload)->hops_to_sink);
 		return ret;
 	}
+	#else
+	event message_t *RadioReceiveSnoop.receive[am_id_t id](message_t *msg, void *payload, uint8_t len) 
+	{
+		message_t *ret = msg;
+		if(id == SENSOR_TYPE || id == EXT_TYPE)
+		{
+			dbg("Alive", "Snooped message from %d.\n", call RadioAMPacket.source(msg));
+			update_neighbor(call RadioAMPacket.source(msg), 99);
+		}
+		return ret;
+	}
+	#endif
 
 	/* On a route message, we want to update the route to the closest node with
 	 * the least number of hops to the sink.
 	 */
-	/*************************************************************************************
-	 * event message_t *RadioReceiveRoute.receive(message_t *msg, void *payload, uint8_t len) 
-	 * 
-	 * 
-	 * 
-	 *************************************************************************************/	 
 	event message_t *RadioReceiveRoute.receive(message_t *msg, void *payload, uint8_t len) 
 	{
 		message_t *ret = msg;
@@ -446,6 +458,14 @@ implementation
 			{
 				dbg("Route", "Updating route to %d (distance: %d).\n", radio_dest, current_distance);
 				route_cmd->hops_to_sink = current_distance;
+				
+				if(!sent_booted)
+				{
+					sent_booted = TRUE;
+					add_info(BOOTED, 1);
+				}
+				
+				add_info(PARENT_NODE, radio_dest);
 				
 				radioAddBroadcast(NETWORK_TYPE, (void *)route_cmd, sizeof(network_route_t));
 			}
@@ -574,9 +594,7 @@ implementation
 				
 				if(neighbors[i].count == 0)
 				{
-					info_queue[infoIn].info_type = LOST_NODE;
-					info_queue[infoIn].info_value = neighbors[i].node_id;
-					infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
+					add_info(LOST_NODE, neighbors[i].node_id);
 					dbg("Alive", "Lost contact with %d!.\n", neighbors[i].node_id);
 					check_for_lost_route(neighbors[i].node_id);
 					send_info_on_serial();
@@ -598,9 +616,7 @@ implementation
 		
 				if(neighbors[i].count == 0)
 				{
-					info_queue[infoIn].info_type = FOUND_NODE;
-					info_queue[infoIn].info_value = neighbors[i].node_id;
-					infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
+					add_info(FOUND_NODE, neighbors[i].node_id);
 					dbg("Alive", "Rediscovered %d!.\n", neighbors[i].node_id);
 				}
 				
@@ -618,9 +634,7 @@ implementation
 			{
 				if(!neighbors[i].valid)
 				{
-					info_queue[infoIn].info_type = FOUND_NODE;
-					info_queue[infoIn].info_value = node_id;
-					infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
+					add_info(FOUND_NODE, node_id);
 					dbg("Alive", "Discovered %d.\n", node_id);
 					
 					neighbors[i].node_id = node_id;
@@ -646,9 +660,13 @@ implementation
 			radio_dest = node_id;
 			current_distance = hops_to_sink + 1;
 			
-			info_queue[infoIn].info_type = PARENT_NODE;
-			info_queue[infoIn].info_value = radio_dest;
-			infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
+			if(!sent_booted)
+			{
+				sent_booted = TRUE;
+				add_info(BOOTED, 1);
+			}
+			
+			add_info(PARENT_NODE, radio_dest);
 			
 			dbg("Route", "Found a better route through %d with distance %d\n", node_id, hops_to_sink);
 		}
@@ -679,9 +697,7 @@ implementation
 						radio_dest = neighbors[i].node_id;
 						current_distance = neighbors[i].hops_to_sink + 1;
 						
-						info_queue[infoIn].info_type = PARENT_NODE;
-						info_queue[infoIn].info_value = radio_dest;
-						infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
+						add_info(PARENT_NODE, radio_dest);
 						
 						dbg("Route", "New route through %d.\n", neighbors[i].node_id);
 						break;
@@ -711,5 +727,18 @@ implementation
 			}
 		}	
 	}
-
+	
+	void add_info(uint8_t info_type, uint16_t info_value)
+	{
+		info_queue[infoIn].info_type = info_type;
+		info_queue[infoIn].info_value = info_value;
+		infoIn = (infoIn + 1) % INFO_QUEUE_LEN;
+	}
+	
+	#ifdef REAL_VOLTAGE
+	event void Read.readDone( error_t result, uint16_t val )
+	{
+		last_voltage = val;
+	}
+	#endif
 }

@@ -39,6 +39,7 @@ enum INFO_TYPES
 	LOST_NODE = 1,
 	PARENT_NODE = 2,
 	VOLTAGE_DATA = 3,
+	BOOTED = 4,
 };
 
 /*
