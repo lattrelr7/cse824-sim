@@ -71,6 +71,7 @@ implementation
 	
 	bool		sent_booted;
 	uint16_t	last_voltage;
+	uint8_t		resend_interval;
 	
 	/* Task prototypes */
 	task void radioSendTask();
@@ -115,6 +116,7 @@ implementation
 		infoIn = infoOut = 0;
 		
 		last_voltage = 0;
+		resend_interval = RESEND_INTERVAL;
 
 		if (call RadioControl.start() == EALREADY)
 		{
@@ -126,7 +128,7 @@ implementation
 		}
 		
 		call Timer1.startPeriodic(ALIVE_PERIOD_MILLI);
-		call Timer2.startPeriodic(REPEAT_INFO_MILLI);
+		call Timer2.startPeriodic(ALIVE_PERIOD_MILLI);
 		
 		dbg("Boot","Boot: Node %d radio started.\n", TOS_NODE_ID);
 
@@ -199,6 +201,16 @@ implementation
 		uint8_t i;
 		uint8_t cur_queue_size = 0;
 		uint8_t queue_add_size = 0;
+		
+		resend_interval--;
+		if(!resend_interval)
+		{
+			resend_interval = RESEND_INTERVAL;
+		}
+		else
+		{
+			return;
+		}
 		
 		//Find number of messages to queue
 		queue_add_size++; //Parent
