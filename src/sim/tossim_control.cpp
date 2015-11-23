@@ -16,9 +16,9 @@
 #include <iostream>
 #include <string>
 #include <map>
-#include "hm_message.h"
-#include "synchronized_queue.h"
-#include "NodeModel.h"
+#include <hm_message.h>
+#include <synchronized_queue.h>
+#include <NodeModel.h>
 
 #define TIME_LIMIT 0
 
