@@ -42,7 +42,7 @@ depend: .depend
 clean:
 	cd $(TOS_APP_DIR); make clean
 	cd $(TOS_APP_DIR); rm -f *.o *.dll
-	rm -f ./$(APP_NAME) ../../$(APP_NAME) *.o *~.
+	rm -f ./$(APP_NAME) ../../$(APP_NAME) *.o *~. ../*.o *~. ../.depend
 
 dist-clean: clean
 	rm -f *~ .depend
