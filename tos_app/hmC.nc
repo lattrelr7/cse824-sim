@@ -91,6 +91,7 @@ implementation
 	void check_for_lost_route(am_addr_t node_id);
 	void send_info_on_serial();
 	void add_info(uint8_t info_type, uint16_t info_value);
+	bool is_route_broken();
 	uint8_t get_info_queue_depth();
 	
 	void failBlink() {call Leds.led2Toggle();}
@@ -722,7 +723,7 @@ implementation
 	 */
 	void update_route(am_addr_t node_id, uint8_t hops_to_sink)
 	{
-		if(hops_to_sink < (current_distance - 1))
+		if((hops_to_sink < (current_distance - 1)) || is_route_broken())
 		{
 			radio_dest = node_id;
 			current_distance = hops_to_sink + 1;
@@ -824,5 +825,22 @@ implementation
 			cur_queue_size = infoIn - infoOut;
 		}
 		return cur_queue_size;
+	}
+	
+	bool is_route_broken()
+	{
+		uint8_t i;
+		
+		for(i=0; i < MAX_NEIGHBORS; i++)
+		{
+			if(neighbors[i].valid && neighbors[i].count == 0)
+			{
+				if(neighbors[i].node_id == radio_dest)
+				{
+					return TRUE;	
+				}
+			}
+		}
+		return FALSE;
 	}
 }
