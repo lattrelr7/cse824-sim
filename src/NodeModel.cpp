@@ -305,15 +305,16 @@ void NodeModel::UpdateSensorData(unsigned int data)
 bool NodeModel::UpdateNeighborHeardBy(NodeModel * node, INFO_TYPES info_type)
 {
 	bool changed = false;
+
+	//If node is in neither list add to max
+	if(!IsNodeInList(node, _heard_by) && !IsNodeInList(node, _n_heard_by))
+	{
+		_max_heard_by++;
+		changed = true;
+	}
+
 	if(info_type == FOUND_NODE)
 	{
-		//If node is in neither list add to max
-		if(!IsNodeInList(node, _heard_by) && !IsNodeInList(node, _n_heard_by))
-		{
-			_max_heard_by++;
-			changed = true;
-		}
-
 		//Check if node is already heard
 		if(!IsNodeInList(node, _heard_by))
 		{
@@ -344,15 +345,16 @@ bool NodeModel::UpdateNeighborHeardBy(NodeModel * node, INFO_TYPES info_type)
 bool NodeModel::UpdateNeighborHeard(NodeModel * node, INFO_TYPES info_type)
 {
 	bool changed = false;
+
+	//If node is in neither list add to max
+	if(!IsNodeInList(node, _heard) && !IsNodeInList(node, _n_heard))
+	{
+		_max_heard++;
+		changed = true;
+	}
+
 	if(info_type == FOUND_NODE)
 	{
-		//If node is in neither list add to max
-		if(!IsNodeInList(node, _heard) && !IsNodeInList(node, _n_heard))
-		{
-			_max_heard++;
-			changed = true;
-		}
-
 		//Check if node is already heard
 		if(!IsNodeInList(node, _heard))
 		{
@@ -529,7 +531,14 @@ std::string NodeModel::PrintTopology(int level)
 
 	for (std::list<NodeModel *>::iterator it=_children.begin(); it!=_children.end(); ++it)
 	{
-		ss << (*it)->PrintTopology(level + 1);
+		if((*it) != NULL)
+		{
+			ss << (*it)->PrintTopology(level + 1);
+		}
+		else
+		{
+			ss << "ERROR: NULL Node";
+		}
 	}
 
 	return ss.str();
