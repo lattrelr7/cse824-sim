@@ -9,3 +9,4 @@ simbuild
 TOSSIM.py
 *dbg*
 *.db
+/web_view/node_modules/*
