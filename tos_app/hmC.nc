@@ -116,19 +116,20 @@ implementation
 		radioIn = radioOut = 0;
 		radioBusy = FALSE;
 		radioFull = TRUE;
-		
 		infoIn = infoOut = 0;
-		
 		last_voltage = 0;
 		resend_interval = RESEND_INTERVAL;
+		last_cmd_id = 0;
+		
+		#ifndef SNOOP_MODE
+			sent_booted = FALSE;
+		#else
+			sent_booted = TRUE;
+		#endif
 
 		if (call RadioControl.start() == EALREADY)
 		{
-			radio_dest = BASE_STATION_NODE_ID;
-			last_cmd_id = 0;
-			current_distance = 0;
 			radioFull = FALSE;
-			sent_booted = FALSE;
 		}
 		
 		#ifndef NO_HM
@@ -140,9 +141,15 @@ implementation
 
 		if(TOS_NODE_ID != BASE_STATION_NODE_ID)
 		{
+			radio_dest = BASE_STATION_NODE_ID;
 			current_distance = 99; /* Node starts not knowing if it can reach sink */
+			
 			call Timer0.startPeriodic(SENSE_PERIOD_MILLI);
 			dbg("Boot","Boot: Node %d timer started.\n", TOS_NODE_ID);
+		}
+		else
+		{
+			current_distance = 0;
 		}
 	}
 
