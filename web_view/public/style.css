@@ -86,12 +86,12 @@ table {
 
 .node-holder .popover {
     margin-left: -64px;
-    width: 350px;
+    width: 380px;
     max-width: none;
 }
 
 .popover-content {
-    width: 340px;
+    width: 370px;
 }
 
 .node-good {
@@ -122,6 +122,8 @@ table {
     width: 40%;
     display: inline-block;
     font-weight: bold;
+    text-align: right;
+    padding: 0px 20px 0px 0px;
 }
 
 .content-data {
@@ -134,4 +136,60 @@ table {
 
 .odd-row {
     background: #f2f2f2;
+}
+
+.bottom-center {
+    text-align: center;
+}
+
+.links {
+    display: inline-block;
+    padding: 0px 10px;
+}
+
+.links:hover {
+    cursor: pointer;
+}
+
+.node-info-holder {
+    padding-bottom: 20px;
+}
+
+.modal-body {
+    overflow-y: scroll;
+}
+
+.pure-table .pure-table-odd td {
+    background-color: initial;
+}
+
+.pure-table-odd {
+    background-color: #f2f2f2;
+}
+
+.pure-table tr:hover, .pure-table-odd:hover {
+    background-color: lightblue;
+    cursor: pointer;
+}
+
+table .selected-row {
+    border-style: groove;
+    background-color: darkturquoise;
+}
+
+.right-modal-div {
+    width: 50%;
+    display: inline-block;
+    vertical-align: top;
+    position: fixed;
+    padding-left: 20px;
+    border-left: 1px solid lightgrey;
+}
+
+.warning-row {
+    background-color: lightyellow;
+}
+
+.error-row {
+    background-color: lightcoral;
 }

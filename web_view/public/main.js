@@ -15,6 +15,7 @@ jQuery(document).ready(function() {
 function Node(node) {
     var self = this;
     self.nodeId = node.NodeId;
+    self.currentDateVal = node.CurrentTime;
     var date = new Date(node.CurrentTime * 1000);
     self.currentTime = ko.observable(date.toLocaleTimeString() + " " + date.toLocaleDateString());
     self.parentId = ko.observable(node.ParentId);
@@ -72,6 +73,16 @@ function NodeListViewModel() {
         var distinct = _.uniq(self.nodes(), 'nodeId' );
         return distinct;
     }, self);
+    
+    self.addNodes = function(nodes) {
+        _.each(nodes, function(node) {
+            var index = _.findIndex(self.nodes(), function(val) { return val.nodeId == node.nodeId; });
+            if(index > 0)
+                self.nodes.splice(index, 0, node);
+            else
+                self.nodes.push(node);
+        });
+    }
 
     self.distinctNodesHierarchy = ko.computed(function(){
         var hierarchy = _.sortBy(self.distinctNodes(), function(node){ return node.parentId(); });
@@ -180,7 +191,6 @@ function NodeListViewModel() {
                 success: function(data) {
                     self.fullHistoryData($.map(data, function(node) { return new Node(node) }));
                     self.isLoadingFullHistory(false);
-                    console.log(self.fullHistoryData());
                 },
                 error: function(err) { alert(err.responseText); }
         });
@@ -194,18 +204,43 @@ function NodeListViewModel() {
         self.viewNode().nodeBeingViewed(true);
     }
     
-    self.test = function(data, key) {
-        console.log(data);
-        console.log(key);
-        return true;
+    self.latestTimeReceived = ko.observable(0);
+    self.updateData = function() {
+        $.ajax({
+            url: 'http://127.0.0.1:9250/update',
+            type: 'GET',
+            dataType: 'json',
+            data: {maxTime: self.latestTimeReceived()},
+            success: function(data) {
+                self.addNodes($.map(data, function(node) { return new Node(node) }));
+                self.latestTimeReceived(self.getLatestTime(self.nodes()));
+            },
+            error: function(err) {
+                alert(err.responseText);
+            },
+            complete: function() {
+                setTimeout(self.updateData, 5000);
+            }
+        });
+    }
+    
+    self.getLatestTime = function(nodes) {
+        var max = 0;
+        _.each(nodes, function(node) {
+            if(node.currentDateVal > max)
+                max = node.currentDateVal;
+        });
+        return max;
     }
     
     $.ajax({
-            url: 'http://127.0.0.1:9250/update',
+            url: 'http://127.0.0.1:9250/getAll',
             type: 'GET',
             dataType: 'json',
             success: function(data) {
                 self.nodes($.map(data, function(node) { return new Node(node) }));
+                self.latestTimeReceived(self.getLatestTime(self.nodes()));
+                setTimeout(self.updateData, 5000);
                 self.isLoading(false);
             },
             error: function(err) { alert(err.responseText); }
