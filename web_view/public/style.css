@@ -68,7 +68,6 @@ table {
     width: 150px;
     height: 150px;
     border-radius: 75px;
-    opacity: 0.4;
     line-height: 150px;
     text-align: center;
     font-size: large;
@@ -95,15 +94,15 @@ table {
 }
 
 .node-good {
-    background: #00ff00;
+    background: rgba(0,255,0,0.4);
 }
 
 .node-warn {
-    background: #ffff00;
+    background: rgba(255,255,0,0.4);
 }
 
 .node-error {
-    background: #ff0000;
+    background: rgba(255,0,0,0.4);
 }
 
 .sink-node {
@@ -192,4 +191,26 @@ table .selected-row {
 
 .error-row {
     background-color: lightcoral;
+}
+
+.horizontal-dl dt {
+    display: inline-block;
+    width: 25px;
+    border: 1px solid lightgrey;
+}
+
+.horizontal-dl dd {
+    display: inline-block;
+    margin-right: 10px;
+}
+
+.horizontal-dl {
+    border: 1px solid lightgrey;
+    border-radius: 5px;
+    height: 40px;
+    padding-left: 10px;
+    padding-right: 10px;
+    padding-top: 8px;
+    width: 300px;
+    float: right;
 }

@@ -2,7 +2,7 @@
 <html>
 <head>      
  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-        <title></title>
+    <title></title>
     <link href="bootstrap/bootstrap.css" rel="stylesheet" />
     <link rel="stylesheet" href="style.css" />
     <link rel="stylesheet" href="http://yui.yahooapis.com/pure/0.6.0/pure-min.css">
@@ -15,6 +15,16 @@
         </ul>
         <div class="tab-content">
             <div id="tabletab" class="tab active">
+                <dl class="horizontal-dl">
+                    <dt>&nbsp;</dt>
+                    <dd> - Good </dd>
+
+                    <dt class="warning-row">&nbsp;</dt>
+                    <dd> - Warning </dd>
+
+                    <dt class="error-row">&nbsp;</dt>
+                    <dd> - Error </dd>
+                </dl>
                 <table id="nodetable" class="pure-table pure-table-bordered">
                     <thead>
                         <tr>
@@ -32,7 +42,7 @@
                         <tr data-bind="css: {'warning-row': status() == 'warning', 'error-row': status() == 'error'},
                                         click: function(data, event) {$root.showRawData(nodeId)}">
                             <td><span data-bind="text:nodeId"></span><span data-bind="if: isSink()" title="Sink Node" class="checkmark">&nbsp;&nbsp;&nbsp;&#10004;</span></td>
-                            <td data-bind="text: currentState()"></td>
+                            <td data-bind="text: currentStateString()"></td>
                             <td data-bind="text: lastSensorValue()"></td>
                             <td data-bind="text: lastVoltageValue()"></td>
                             <td data-bind="text: nodesHeard()"></td>
@@ -45,6 +55,16 @@
             </div>
             <div id="viewtab" class="tab" class="canvas">
                 <div>
+                    <dl class="horizontal-dl">
+                        <dt class="node-good">&nbsp;</dt>
+                        <dd> - Good </dd>
+
+                        <dt class="node-warn">&nbsp;</dt>
+                        <dd> - Warning </dd>
+
+                        <dt class="node-error">&nbsp;</dt>
+                        <dd> - Error </dd>
+                    </dl>
                     <div data-bind="foreach: distinctNodesHierarchy">
                         <canvas data-bind="attr: {id: 'canvas' + nodeId}" style="position:absolute; z-index:999; left: 500px"></canvas>
                     </div>
@@ -58,7 +78,9 @@
                                                     data: { nodeId: nodeId,
                                                             time: currentTime(), 
                                                             parent: parentId(), 
-                                                            state: currentState(),
+                                                            state: currentStateString(),
+                                                            stateCss: stateCss(),
+                                                            status: status(),
                                                             sensorVal: lastSensorValue(),
                                                             nodesHeard: nodesHeard(),
                                                             nodesNotHeard: nodesNoLongerHeard()} }, 
@@ -92,9 +114,9 @@
     
     <script type="text/html" id="nodeViewTemplate">
         <div data-bind="foreach: {data: Object.keys($data), as: '_propkey'}">
-            <div class="content-holder" data-bind="css: {'odd-row': $index()%2 == 0}">
+            <div class="content-holder" data-bind="if: $root.isNotFunction($parentContext.$data, _propkey), css: {'odd-row': $index()%2 == 0}">
                 <div class="content-label" style="width: 50%" data-bind="text:_propkey + ':'"></div>
-                <div class="content-data" data-bind="text: $parentContext.$data[_propkey]"></div>
+                <div class="content-data" data-bind="text: $parentContext.$data[_propkey], css: $root.stateStringCss($parentContext.$data, _propkey)"></div>
             </div>
         </div>
     </script>
@@ -145,7 +167,7 @@
             <div class="content-label">Sensor Value: </div><div class="content-data" data-bind="text: sensorVal"></div>
         </div>
         <div class="content-holder odd-row">
-            <div class="content-label">State: </div><div class="content-data" data-bind="text: state"></div>
+            <div class="content-label">State: </div><div class="content-data" data-bind="text: state, css: stateCss"></div>
         </div>
         <div class="content-holder">
             <div class="content-label">Nodes Heard: </div><div class="content-data" data-bind="text: nodesHeard"></div>

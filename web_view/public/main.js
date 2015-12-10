@@ -23,6 +23,37 @@ function Node(node) {
     self.id = node.Id;
     self.isSink = ko.observable(node.IsSink);
     self.currentState = ko.observable(node.CurrentState);
+    self.currentStateString = ko.computed(function() {
+        var curStateBin = self.currentState().toString(2).split('').reverse().join('');
+        var curState = []
+        if(curStateBin.length == 1 && curStateBin.charAt(0) == '0')
+            return "GOOD";
+        
+        if(curStateBin.charAt(0) == '1')
+            curState.push("DATA_FAILURE");
+        if(curStateBin.charAt(1) == '1')
+            curState.push("PATH_FAILURE");
+        if(curStateBin.charAt(2) == '1')
+            curState.push("PATH_UPDATE");
+        if(curStateBin.charAt(3) == '1')
+            curState.push("IN_LINK_ERRORS_MINOR");
+        if(curStateBin.charAt(4) == '1')
+            curState.push("IN_LINK_ERRORS_MAJOR");
+        if(curStateBin.charAt(5) == '1')
+            curState.push("IN_LINK_FAILURE");
+        if(curStateBin.charAt(6) == '1')
+            curState.push("OUT_LINK_ERRORS_MINOR");
+        if(curStateBin.charAt(7) == '1')
+            curState.push("OUT_LINK_ERRORS_MAJOR");
+        if(curStateBin.charAt(8) == '1')
+            curState.push("OUT_LINK_FAILURE");
+        if(curStateBin.charAt(9) == '1')
+            curState.push("BATTERY_FAILURE");
+        if(curStateBin.charAt(10) == '1')
+            curState.push("REBOOTED");
+        
+        return curState.join();
+    });
     self.pathFailedId = ko.observable(node.PathFailedId);
     self.rebootCount = ko.observable(node.RebootCount);
     self.children = ko.observable(node.Children);
@@ -43,7 +74,23 @@ function Node(node) {
     self.isParentHighlight = ko.observable(false);
     self.nodeBeingViewed = ko.observable(false);
     self.status = ko.computed(function() {
-        switch(self.currentState()) {
+        var curStateBin = self.currentState().toString(2).split('').reverse().join('');
+        if(curStateBin.charAt(9) == '1' 
+            || curStateBin.charAt(8) == '1'
+            || curStateBin.charAt(7) == '1'
+            || curStateBin.charAt(5) == '1'
+            || curStateBin.charAt(4) == '1'
+            || curStateBin.charAt(1) == '1')
+            return "error";
+        else if(curStateBin.charAt(10) == '1'
+                || curStateBin.charAt(6) == '1'
+                || curStateBin.charAt(3) == '1'
+                || curStateBin.charAt(2) == '1'
+                || curStateBin.charAt(0) == '1')
+            return "warning";
+        else
+            return "good";
+        /*switch(self.currentState()) {
             case 0:
             case 4:
                 return "good";
@@ -57,10 +104,22 @@ function Node(node) {
             case 32:
             case 128:
             case 256:
+            case 512:
                 return "error";
             default:
                 return "warning";
-            }
+            }*/
+    });
+    
+    self.stateCss = ko.computed(function() {
+        var css = "";
+        if(self.status() === "good")
+            css = "node-good";
+        else if(self.status() === "warning")
+            css = "node-warn";
+        else if(self.status() === "error")
+            css = "node-error";
+        return css;
     });
 }
 
@@ -82,6 +141,19 @@ function NodeListViewModel() {
             else
                 self.nodes.push(node);
         });
+    }
+    
+    self.isNotFunction = function(obj, key) {
+        if(key == 'stateCss' || key == 'hierarchyLevel')
+            return false;
+        return true;
+    }
+    
+    self.stateStringCss = function(node, key) {
+        if(key !== 'currentStateString')
+            return '';
+        else
+            return node.stateCss();
     }
 
     self.distinctNodesHierarchy = ko.computed(function(){
