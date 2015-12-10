@@ -93,6 +93,7 @@ implementation
 	void add_info(uint8_t info_type, uint16_t info_value);
 	bool is_route_broken();
 	uint8_t get_info_queue_depth();
+	void init_neighbor_structs();
 	
 	void failBlink() {call Leds.led2Toggle();}
 	void dropBlink() {call Leds.led2Toggle();}
@@ -126,6 +127,8 @@ implementation
 		#else
 			sent_booted = TRUE;
 		#endif
+		
+		init_neighbor_structs();
 
 		if (call RadioControl.start() == EALREADY)
 		{
@@ -149,6 +152,7 @@ implementation
 		}
 		else
 		{
+			radio_dest = 0;
 			current_distance = 0;
 		}
 	}
@@ -730,20 +734,23 @@ implementation
 	 */
 	void update_route(am_addr_t node_id, uint8_t hops_to_sink)
 	{
-		if((hops_to_sink < (current_distance - 1)) || is_route_broken())
+		if(TOS_NODE_ID != BASE_STATION_NODE_ID)
 		{
-			radio_dest = node_id;
-			current_distance = hops_to_sink + 1;
-			
-			if(!sent_booted)
+			if((hops_to_sink < (current_distance - 1)) || is_route_broken())
 			{
-				sent_booted = TRUE;
-				add_info(BOOTED, 1);
+				radio_dest = node_id;
+				current_distance = hops_to_sink + 1;
+				
+				if(!sent_booted)
+				{
+					sent_booted = TRUE;
+					add_info(BOOTED, 1);
+				}
+				
+				add_info(PARENT_NODE, radio_dest);
+				
+				dbg("Route", "Found a better route through %d with distance %d\n", node_id, hops_to_sink);
 			}
-			
-			add_info(PARENT_NODE, radio_dest);
-			
-			dbg("Route", "Found a better route through %d with distance %d\n", node_id, hops_to_sink);
 		}
 	}
 	
@@ -849,5 +856,18 @@ implementation
 			}
 		}
 		return FALSE;
+	}
+	
+	void init_neighbor_structs()
+	{
+		uint8_t i;
+		
+		for(i=0; i < MAX_NEIGHBORS; i++)
+		{
+			neighbors[i].node_id = 0;
+			neighbors[i].count = 0;
+			neighbors[i].valid = 0;
+			neighbors[i].hops_to_sink = 0;
+		}
 	}
 }
